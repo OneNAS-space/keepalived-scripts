@@ -1,0 +1,41 @@
+# Copyright 2025 OneNAS.space, Jackie264 (jackie.han@gmail.com).
+
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=keepalived-scripts
+PKG_VERSION:=1.0.0
+PKG_RELEASE:=1
+
+PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
+
+include $(INCLUDE_DIR)/package.mk
+
+define Package/keepalived-scripts
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=Keepalived user scripts for openwrt
+  DEPENDS:=
+  PKGARCH:=all
+endef
+
+define Package/keepalived-scripts/description
+ Scripts of keepalived. Functions with modify services on status changed.
+endef
+
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+endef
+
+define Build/Compile
+	# nothing to compile, shell scripts only
+endef
+
+define Package/keepalived-scripts/install
+	$(INSTALL_DIR) $(1)/etc
+	$(INSTALL_BIN) ./files/etc/keepalived.user $(1)/etc/keepalived.user
+
+	$(INSTALL_DIR) $(1)/usr/share/keepalived/scripts
+	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts $(1)/usr/share/keepalived/scripts
+endef
+
+$(eval $(call BuildPackage,keepalived-scripts))
