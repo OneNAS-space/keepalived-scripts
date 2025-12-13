@@ -14,7 +14,7 @@ define Package/keepalived-scripts
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Keepalived user scripts for openwrt
-  DEPENDS:=
+  DEPENDS:=+keepalived
   PKGARCH:=all
 endef
 
@@ -35,7 +35,14 @@ define Package/keepalived-scripts/install
 	$(INSTALL_BIN) ./files/etc/keepalived.user $(1)/etc/keepalived.user
 
 	$(INSTALL_DIR) $(1)/usr/share/keepalived/scripts
-	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts $(1)/usr/share/keepalived/scripts
+	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/agh_bind_hosts.sh $(1)/usr/share/keepalived/scripts/agh_bind_hosts.sh
+	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/get_lan_vip.sh $(1)/usr/share/keepalived/scripts/get_lan_vip.sh
+	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/sync_leases.sh $(1)/usr/share/keepalived/scripts/sync_leases.sh
+
+	$(INSTALL_DIR) $(1)/etc/keepalived/scripts
+	$(CP) -L -f -s /usr/share/keepalived/scripts/agh_bind_hosts.sh $(1)/etc/keepalived/scripts/agh_bind_hosts.sh
+	$(CP) -L -f -s /usr/share/keepalived/scripts/get_lan_vip.sh $(1)/etc/keepalived/scripts/get_lan_vip.sh
+	$(CP) -L -f -s /usr/share/keepalived/scripts/sync_leases.sh $(1)/etc/keepalived/scripts/sync_leases.sh
 endef
 
 $(eval $(call BuildPackage,keepalived-scripts))
