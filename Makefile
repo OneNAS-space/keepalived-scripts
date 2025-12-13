@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -20,6 +20,10 @@ endef
 
 define Package/keepalived-scripts/description
  Scripts of keepalived. Functions with modify services on status changed.
+endef
+
+define Package/keepalived-scripts/conffiles
+/etc/keepalived.user
 endef
 
 define Build/Prepare
