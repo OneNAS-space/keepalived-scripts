@@ -14,7 +14,7 @@ define Package/keepalived-scripts
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Keepalived user scripts for openwrt
-  DEPENDS:=+keepalived
+  DEPENDS:=
   PKGARCH:=all
 endef
 
