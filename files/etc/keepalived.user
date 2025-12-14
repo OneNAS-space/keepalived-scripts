@@ -148,6 +148,7 @@ enable_dhcpv4_add_option() {
 
 	uci batch <<-EOF
 		delete dhcp.lan.ignore
+		delete dhcp.lan.dhcp_option
 		add_list dhcp.lan.dhcp_option='3,$VIP'
 		add_list dhcp.lan.dhcp_option='6,$VIP'
 		commit dhcp.lan
@@ -167,6 +168,7 @@ disable_dhcpv4_clear_option() {
 # --- DHCP RA flags ---
 add_dhcpv6_ra_flags() {
 	uci batch <<-EOF
+		delete dhcp.lan.ra_flags
 		add_list dhcp.lan.ra_flags=managed-config
 		add_list dhcp.lan.ra_flags=other-config
 		add_list dhcp.lan.ra_flags=home-agent
