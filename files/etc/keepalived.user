@@ -76,50 +76,6 @@ disable_cloudflared() {
 	fi
 }
 
-# --- AdGuardHome ---
-AdGuardHome_installed=true
-if ! command -v AdGuardHome >/dev/null 2>&1; then
-	logger "AdGuardHome is not installed, skipping AdGuardHome control"
-	AdGuardHome_installed=false
-fi
-
-restart_AdGuardHome_if_needed() {
-	local state_action=$1
-	logger "***** Restarting AdGuardHome service *****"
-	/etc/init.d/AdGuardHome restart 2>/dev/null || logger "Error starting AdGuardHome"
-}
-
-modify_agh_bind_host() {
-	local state_action=$1
-	local script_command
-
-	if [ "$AdGuardHome_installed" != true ]; then
-		logger "AdGuardHome is not installed, skipping AGH bind host modification."
-		return 0
-	fi
-
-	if [ "$state_action" = "NOTIFY_MASTER" ]; then
-		script_command="add"
-	elif [ "$state_action" = "NOTIFY_BACKUP" ] || [ "$state_action" = "NOTIFY_FAULT" ]; then
-		script_command="remove"
-	fi
-
-	if [ -z "$script_command" ]; then
-		logger "Warning: modify_agh_bind_host could not determine script command for action: $state_action. Skipping."
-		return 1
-	fi
-
-	logger "Executing AdGuardHome config update: $script_command for state $state_action."
-	/etc/keepalived/scripts/agh_bind_hosts.sh "$script_command"
-
-	if [ $? -eq 0 ]; then
-		restart_AdGuardHome_if_needed "$state_action"
-	else
-		logger "ERROR: AdGuardHome config script failed to execute $script_command. Service not restarted."
-		return 1
-	fi
-}
-
 # --- Check and update UCI settings ---
 check_and_update() {
 	local config_key=$1
@@ -272,7 +228,6 @@ if [ -f /tmp/keepalived_initial_start ] && [ "$ACTION" = "NOTIFY_BACKUP" ]; then
 
 		schedule_sync_leases "$ACTION"
 		disable_natmap "$ACTION"
-		modify_agh_bind_host "$ACTION"
 	else
 		logger "*** After delay, Keepalived is no longer in BACKUP state, skipping NOTIFY_BACKUP execution ***"
 		exit 0
@@ -321,8 +276,6 @@ if [ "$ACTION" = "NOTIFY_MASTER" ]; then
 	restart_odhcpd_if_needed "$ACTION"
 
 	disable_cloudflared "$ACTION"
-	modify_agh_bind_host "$ACTION"
-
 elif [ "$ACTION" = "NOTIFY_BACKUP" ]; then
 	logger "Keepalived state is BACKUP, disabling services"
 
@@ -337,13 +290,10 @@ elif [ "$ACTION" = "NOTIFY_BACKUP" ]; then
 
 	disable_natmap "$ACTION"
 	schedule_sync_leases "$ACTION"
-	modify_agh_bind_host "$ACTION"
-
 elif [ "$ACTION" = "NOTIFY_FAULT" ]; then
 	logger "Keepalived state is FAULT, disabling services"
 
 	disable_natmap "$ACTION"
 	disable_cloudflared "$ACTION"
 	schedule_sync_leases "$ACTION"
-	modify_agh_bind_host "$ACTION"
 fi
