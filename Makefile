@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
-PKG_VERSION:=1.1.2
+PKG_VERSION:=1.1.3
 PKG_RELEASE:=2
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
@@ -14,7 +14,7 @@ define Package/keepalived-scripts
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=Keepalived user scripts for openwrt
-	DEPENDS:=+keepalived
+	DEPENDS:=+keepalived +rsync
 	PKGARCH:=all
 endef
 
@@ -24,6 +24,7 @@ endef
 
 define Package/keepalived-scripts/conffiles
 /etc/keepalived.user
+/etc/config/lease_sync
 endef
 
 define Build/Prepare
@@ -37,6 +38,9 @@ endef
 define Package/keepalived-scripts/install
 	$(INSTALL_DIR) $(1)/etc
 	$(INSTALL_CONF) ./files/etc/keepalived.user $(1)/etc/keepalived.user
+
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./files/etc/config/lease_sync $(1)/etc/config/lease_sync
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/lease_sync $(1)/etc/init.d/lease_sync

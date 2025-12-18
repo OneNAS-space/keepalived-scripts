@@ -15,8 +15,7 @@ start_natmap_if_needed() {
 		logger "natmap service is already running, skipping start"
 	else
 		logger "***** Starting natmap service *****"
-		/etc/init.d/natmap enable
-		/etc/init.d/natmap start 2>/dev/null || logger "Error starting natmap"
+		/etc/init.d/natmap restart 2>/dev/null || logger "Error starting natmap"
 	fi
 }
 
@@ -24,7 +23,6 @@ stop_natmap_if_needed() {
 	local state_action=$1
 	logger "***** Stopping natmap service *****"
 	/etc/init.d/natmap stop 2>/dev/null || logger "Error stopping natmap"
-	/etc/init.d/natmap disable
 }
 
 enable_natmap() {
@@ -54,8 +52,7 @@ start_cloudflared_if_needed() {
 		logger "cloudflared service is already running, skipping start"
 	else
 		logger "***** Starting cloudflared service *****"
-		/etc/init.d/cloudflared enable
-		/etc/init.d/cloudflared start 2>/dev/null || logger "Error starting cloudflared"
+		/etc/init.d/cloudflared restart 2>/dev/null || logger "Error starting cloudflared"
 	fi
 }
 
@@ -63,7 +60,6 @@ stop_cloudflared_if_needed() {
 	local state_action=$1
 	logger "***** Stopping cloudflared service *****"
 	/etc/init.d/cloudflared stop 2>/dev/null || logger "Error stopping cloudflared"
-	/etc/init.d/cloudflared disable
 }
 
 enable_cloudflared() {
@@ -196,12 +192,14 @@ fi
 schedule_sync_leases() {
 	if [ "$1" = "NOTIFY_MASTER" ]; then
 		logger "MASTER: Starting Procd lease sync service (Silent Mode)"
-		/etc/init.d/lease_sync enable
-		/etc/init.d/lease_sync start
+		uci set lease_sync.global.enable='1'
+		uci commit lease_sync
+		/etc/init.d/lease_sync restart
 	elif [ "$1" = "NOTIFY_BACKUP" ] || [ "$1" = "NOTIFY_FAULT" ]; then
 		logger "BACKUP/FAULT: Stopping Procd lease sync service"
 		/etc/init.d/lease_sync stop
-		/etc/init.d/lease_sync disable
+		uci set lease_sync.global.enable='0'
+		uci commit lease_sync
 	fi
 }
 
