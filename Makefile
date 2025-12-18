@@ -3,8 +3,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
-PKG_VERSION:=1.0.2
-PKG_RELEASE:=3
+PKG_VERSION:=1.1.0
+PKG_RELEASE:=1
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -37,6 +37,9 @@ endef
 define Package/keepalived-scripts/install
 	$(INSTALL_DIR) $(1)/etc
 	$(INSTALL_CONF) ./files/etc/keepalived.user $(1)/etc/keepalived.user
+
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/etc/init.d/lease_sync $(1)/etc/init.d/lease_sync
 
 	$(INSTALL_DIR) $(1)/usr/share/keepalived/scripts
 	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/get_lan_vip.sh $(1)/usr/share/keepalived/scripts/get_lan_vip.sh
