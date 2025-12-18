@@ -191,19 +191,13 @@ fi
 # --- Set the scheduled task on the Master host, and remove it on the Backup host. ---
 schedule_sync_leases() {
 	if [ "$1" = "NOTIFY_MASTER" ]; then
-		if ! crontab -l 2>/dev/null | grep -q 'sync_leases.sh'; then
-			logger "Scheduling periodic DHCP lease sync on MASTER"
-			(crontab -l 2>/dev/null; echo "*/1 * * * * /etc/keepalived/scripts/sync_leases.sh push") | crontab - 2>/dev/null || logger "Error setting cron job" # Added 'push' parameter
-		else
-			logger "DHCP lease sync cron job already exists, skipping"
-		fi
+		logger "MASTER: Starting Procd lease sync service (Silent Mode)"
+		/etc/init.d/lease_sync enable
+		/etc/init.d/lease_sync start
 	elif [ "$1" = "NOTIFY_BACKUP" ] || [ "$1" = "NOTIFY_FAULT" ]; then
-		if crontab -l 2>/dev/null | grep -q 'sync_leases.sh'; then
-			logger "Removing DHCP lease sync cron job on BACKUP/FAULT"
-			(crontab -l 2>/dev/null | grep -v 'sync_leases.sh') | crontab - 2>/dev/null || logger "Error removing cron job"
-		else
-			logger "No DHCP lease sync cron job found, skipping removal"
-		fi
+		logger "BACKUP/FAULT: Stopping Procd lease sync service"
+		/etc/init.d/lease_sync stop
+		/etc/init.d/lease_sync disable
 	fi
 }
 
