@@ -64,7 +64,7 @@ fi
 # Function to pull leases from peer
 pull_leases() {
     local source_ip=$1
-    rsync -az --timeout=10 "root@$source_ip:$LOCAL_LEASES_FILE" "$LOCAL_LEASES_FILE" >/dev/null 2>&1
+    rsync -az --timeout=10 -e "ssh -i /root/.ssh/id_dropbear -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "root@$source_ip:$LOCAL_LEASES_FILE" "$LOCAL_LEASES_FILE" >/dev/null 2>&1
     if [ $? -eq 0 ]; then
         logger "sync_leases: Successfully pulled DHCP leases from peer ($source_ip)."
         # After successful pull, update the hash in the status file
@@ -102,7 +102,7 @@ push_leases() {
         fi
     fi
 
-    rsync -az --timeout=10 "$LOCAL_LEASES_FILE" "root@$dest_ip:$LOCAL_LEASES_FILE" >/dev/null 2>&1
+    rsync -az --timeout=10 -e "ssh -i /root/.ssh/id_dropbear -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$LOCAL_LEASES_FILE" "root@$dest_ip:$LOCAL_LEASES_FILE" >/dev/null 2>&1
 
     # Check the result of the rsync command
     if [ $? -eq 0 ]; then
