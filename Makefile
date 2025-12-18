@@ -11,11 +11,11 @@ PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 include $(INCLUDE_DIR)/package.mk
 
 define Package/keepalived-scripts
-  SECTION:=net
-  CATEGORY:=Network
-  TITLE:=Keepalived user scripts for openwrt
-  DEPENDS:=
-  PKGARCH:=all
+	SECTION:=net
+	CATEGORY:=Network
+	TITLE:=Keepalived user scripts for openwrt
+	DEPENDS:=+keepalived
+	PKGARCH:=all
 endef
 
 define Package/keepalived-scripts/description
