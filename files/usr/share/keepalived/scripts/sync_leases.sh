@@ -88,7 +88,7 @@ push_leases() {
     # Check if local leases file exists and is not empty
     if [ ! -s "$LOCAL_LEASES_FILE" ]; then # -s checks if file exists and is not empty
         logger "sync_leases: Local leases file $LOCAL_LEASES_FILE does not exist or is empty, skipping push."
-        exit 0
+        return 0
     fi
 
     # Compute current leases file hash
@@ -102,7 +102,7 @@ push_leases() {
         PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
         # If hashes are the same, file hasn't changed, no need to sync
         if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
-            exit 0
+            return 0
         fi
     fi
 
@@ -128,10 +128,17 @@ case "$1" in
     push)
         push_leases "$PEER_IP"
         ;;
+    daemon_push)
+        logger "sync_leases: Background push service started."
+        while true; do
+            push_leases "$PEER_IP"
+            sleep 60
+        done
+        ;;
+    get_peer_ip)
+        get_peer_lan_ip ;;
     *)
-        logger "sync_leases: Usage: $0 [pull|push|get_peer_ip]"
+        logger "sync_leases: Usage: $0 [pull|push|daemon_push|get_peer_ip]"
         exit 1
         ;;
 esac
-
-exit 0
