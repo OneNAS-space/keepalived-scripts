@@ -53,16 +53,12 @@ find_peer_address() {
 }
 
 # Added: Directly return peer IP for external calls
-if [ "$1" = "get_peer_ip" ]; then
-    get_peer_lan_ip
-    exit $?
-fi
-
-PEER_IP=$(get_peer_lan_ip)
-
-if [ -z "$PEER_IP" ]; then
-    logger "sync_leases: Error: Could not determine peer LAN IP, exiting sync."
-    exit 1
+if [ "$1" != "get_peer_ip" ]; then
+    PEER_IP=$(get_peer_lan_ip)
+    if [ -z "$PEER_IP" ]; then
+        logger "sync_leases: Error: Could not determine peer LAN IP, exiting sync."
+        exit 1
+    fi
 fi
 
 # Function to pull leases from peer
@@ -92,14 +88,14 @@ push_leases() {
     fi
 
     # Compute current leases file hash
-    CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}')
+    local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}')
 
     # If the status file does not exist, initialize it
     if [ ! -f "$SYNC_STATUS_FILE" ]; then
         logger "sync_leases: First run or status file missing, performing push..."
     else
         # Read the hash from the last sync
-        PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
+        local PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
         # If hashes are the same, file hasn't changed, no need to sync
         if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
             return 0
@@ -136,7 +132,8 @@ case "$1" in
         done
         ;;
     get_peer_ip)
-        get_peer_lan_ip ;;
+        get_peer_lan_ip
+        ;;
     *)
         logger "sync_leases: Usage: $0 [pull|push|daemon_push|get_peer_ip]"
         exit 1
