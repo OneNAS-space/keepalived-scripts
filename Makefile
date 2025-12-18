@@ -38,6 +38,9 @@ define Package/keepalived-scripts/install
 	$(INSTALL_DIR) $(1)/etc
 	$(INSTALL_CONF) ./files/etc/keepalived.user $(1)/etc/keepalived.user
 
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./files/etc/config/lease_sync $(1)/etc/config/lease_sync
+
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/lease_sync $(1)/etc/init.d/lease_sync
 
