@@ -1,0 +1,5 @@
+config lease_sync 'global'
+    option enable '0'
+    option interval '60'
+    option ssh_key '/root/.ssh/id_dropbear'
+    option peer_ip ''
