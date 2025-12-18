@@ -3,8 +3,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
-PKG_VERSION:=1.1.2
-PKG_RELEASE:=2
+PKG_VERSION:=1.1.3
+PKG_RELEASE:=1
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -14,7 +14,7 @@ define Package/keepalived-scripts
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=Keepalived user scripts for openwrt
-	DEPENDS:=+keepalived
+	DEPENDS:=+keepalived +rsync
 	PKGARCH:=all
 endef
 
@@ -24,6 +24,7 @@ endef
 
 define Package/keepalived-scripts/conffiles
 /etc/keepalived.user
+/etc/config/lease_sync
 endef
 
 define Build/Prepare
