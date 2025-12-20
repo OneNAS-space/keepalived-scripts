@@ -11,6 +11,7 @@ load_config() {
     config_load lease_sync
     config_get_bool ENABLE global enable 0
     config_get INTERVAL global interval 3600
+    config_get RETRY_INTERVAL global retry_interval 30
     config_get SSH_KEY global ssh_key "/root/.ssh/id_dropbear"
     config_get USER_PEER_IP global peer_ip
 }
@@ -116,7 +117,6 @@ push_leases() {
 daemon_push() {
     logger "sync_leases: Background service starting..."
     local CACHED_PEER_IP=""
-    local RETRY_INTERVAL=30
     local SYNC_FAILED=0
 
     while true; do
