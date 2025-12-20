@@ -57,14 +57,8 @@ define Package/keepalived-scripts/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
 	echo "keepalived-scripts: Applying updated logic..."
-	if [ -x "/etc/init.d/lease_sync" ]; then
-		/etc/init.d/lease_sync restart
-	fi
-
-	if [ -x "/etc/init.d/keepalived" ]; then
-		/etc/init.d/keepalived reload
-	fi
-
+	/etc/init.d/lease_sync restart
+	/etc/init.d/keepalived reload
 	echo "keepalived-scripts: Update completed successfully."
 fi
 exit 0
