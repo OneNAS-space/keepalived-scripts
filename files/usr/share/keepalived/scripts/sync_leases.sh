@@ -82,20 +82,28 @@ pull_leases() {
 # Function to push leases to peer
 push_leases() {
     local dest_ip=$1
+    local force_sync=$2
+    local CURRENT_HASH
+    local PREVIOUS_HASH
+
     if [ ! -s "$LOCAL_LEASES_FILE" ]; then
         logger "sync_leases: Local leases file $LOCAL_LEASES_FILE does not exist or is empty, skipping push."
         return 0
     fi
 
-    local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}' 2>/dev/null)
+    CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}' 2>/dev/null)
 
-    if [ ! -f "$SYNC_STATUS_FILE" ]; then
-        logger "sync_leases: First run or status file missing, performing push..."
-    else
-        local PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
-        if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
-            return 0
+    if [ "$force_sync" != "force" ]; then
+        if [ ! -f "$SYNC_STATUS_FILE" ]; then
+            logger "sync_leases: First run or status file missing, performing push..."
+        else
+            PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
+            if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
+                return 0
+            fi
         fi
+    else
+        logger "sync_leases: Force sync triggered (peer recovery), bypassing hash check."
     fi
 
     if ! ping -c 1 -W 1 "$dest_ip" >/dev/null 2>&1; then
@@ -135,7 +143,12 @@ daemon_push() {
         fi
 
         if [ -n "$TARGET_IP" ]; then
-            if ! push_leases "$TARGET_IP"; then
+            local sync_mode=""
+            if [ "$SYNC_FAILED" -eq 1 ]; then
+                sync_mode="force"
+            fi
+            
+            if ! push_leases "$TARGET_IP" "$sync_mode"; then
                 CACHED_PEER_IP=""
                 SYNC_FAILED=1
                 sleep "$RETRY_INTERVAL"
