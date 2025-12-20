@@ -3,8 +3,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
-PKG_VERSION:=1.1.4
-PKG_RELEASE:=3
+PKG_VERSION:=1.2.0
+PKG_RELEASE:=beta
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
