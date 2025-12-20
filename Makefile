@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
 PKG_VERSION:=1.2.1
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -32,7 +32,6 @@ define Build/Prepare
 endef
 
 define Build/Compile
-	# nothing to compile, shell scripts only
 endef
 
 define Package/keepalived-scripts/install
@@ -52,6 +51,23 @@ define Package/keepalived-scripts/install
 	$(INSTALL_DIR) $(1)/etc/keepalived/scripts
 	$(LN) /usr/share/keepalived/scripts/get_lan_vip.sh $(1)/etc/keepalived/scripts/get_lan_vip.sh
 	$(LN) /usr/share/keepalived/scripts/sync_leases.sh $(1)/etc/keepalived/scripts/sync_leases.sh
+endef
+
+define Package/keepalived-scripts/postinst
+#!/bin/sh
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	echo "keepalived-scripts: Applying updated logic..."
+	if [ -x "/etc/init.d/lease_sync" ]; then
+		/etc/init.d/lease_sync restart
+	fi
+
+	if [ -x "/etc/init.d/keepalived" ]; then
+		/etc/init.d/keepalived reload
+	fi
+
+	echo "keepalived-scripts: Update completed successfully."
+fi
+exit 0
 endef
 
 $(eval $(call BuildPackage,keepalived-scripts))
