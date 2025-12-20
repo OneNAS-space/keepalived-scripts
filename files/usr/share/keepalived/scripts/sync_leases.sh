@@ -10,7 +10,7 @@ SYNC_STATUS_FILE="/tmp/leases_sync_status"
 load_config() {
     config_load lease_sync
     config_get_bool ENABLE global enable 0
-    config_get INTERVAL global interval 60
+    config_get INTERVAL global interval 3600
     config_get SSH_KEY global ssh_key "/root/.ssh/id_dropbear"
     config_get USER_PEER_IP global peer_ip
 }
@@ -120,19 +120,26 @@ push_leases() {
 
 daemon_push() {
     logger "sync_leases: Background service starting..."
+    local PEER_IP=""
     while true; do
         load_config
         if [ "$ENABLE" -ne 1 ]; then
             logger "sync_leases: Service disabled via UCI, exiting."
             break
         fi
-        
-        TARGET_IP=${USER_PEER_IP:-$(get_peer_lan_ip)}
+
+        TARGET_IP=${USER_PEER_IP:-$PEER_IP}
+        if [ -z "$TARGET_IP" ]; then
+            TARGET_IP=$(get_peer_lan_ip)
+            PEER_IP=$TARGET_IP
+        fi
+
         if [ -n "$TARGET_IP" ]; then
             push_leases "$TARGET_IP"
         fi
-        
-        sleep "$INTERVAL"
+
+        inotifywait -t "$INTERVAL" -e modify "$LOCAL_LEASES_FILE" >/dev/null 2>&1
+        [ $? -eq 0 ] && sleep 2
     done
 }
 
