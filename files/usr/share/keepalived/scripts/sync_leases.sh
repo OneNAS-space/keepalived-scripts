@@ -63,22 +63,13 @@ find_peer_address() {
     fi
 }
 
-# Added: Directly return peer IP for external calls
-if [ "$1" != "get_peer_ip" ]; then
-    PEER_IP=$(get_peer_lan_ip)
-    if [ -z "$PEER_IP" ]; then
-        logger "sync_leases: Error: Could not determine peer LAN IP, exiting sync."
-        exit 1
-    fi
-fi
-
 # Function to pull leases from peer
 pull_leases() {
     local source_ip=$1
     rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "root@$source_ip:$LOCAL_LEASES_FILE" "$LOCAL_LEASES_FILE" >/dev/null 2>&1
     if [ $? -eq 0 ]; then
         logger "sync_leases: Successfully pulled DHCP leases from peer ($source_ip)."
-        CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}')
+        local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}' 2>/dev/null)
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
     else
@@ -90,12 +81,12 @@ pull_leases() {
 # Function to push leases to peer
 push_leases() {
     local dest_ip=$1
-    if [ ! -s "$LOCAL_LEASES_FILE" ]; then # -s checks if file exists and is not empty
+    if [ ! -s "$LOCAL_LEASES_FILE" ]; then
         logger "sync_leases: Local leases file $LOCAL_LEASES_FILE does not exist or is empty, skipping push."
         return 0
     fi
 
-    local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}')
+    local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}' 2>/dev/null)
 
     if [ ! -f "$SYNC_STATUS_FILE" ]; then
         logger "sync_leases: First run or status file missing, performing push..."
@@ -124,7 +115,7 @@ push_leases() {
 
 daemon_push() {
     logger "sync_leases: Background service starting..."
-    local PEER_IP=""
+    local CACHED_PEER_IP=""
     while true; do
         load_config
         if [ "$ENABLE" -ne 1 ]; then
@@ -132,14 +123,17 @@ daemon_push() {
             break
         fi
 
-        local TARGET_IP=${USER_PEER_IP:-$PEER_IP}
+        local TARGET_IP="$USER_PEER_IP"
         if [ -z "$TARGET_IP" ]; then
-            TARGET_IP=$(get_peer_lan_ip)
-            PEER_IP=$TARGET_IP
+            if [ -z "$CACHED_PEER_IP" ]; then
+                CACHED_PEER_IP=$(get_peer_lan_ip)
+            fi
+            TARGET_IP="$CACHED_PEER_IP"
         fi
 
         if [ -n "$TARGET_IP" ]; then
-            if [ ! push_leases "$TARGET_IP" ]; then
+            if ! push_leases "$TARGET_IP"; then
+                CACHED_PEER_IP=""
                 sleep 5
             fi
         fi
