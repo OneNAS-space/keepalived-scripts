@@ -116,6 +116,9 @@ push_leases() {
 daemon_push() {
     logger "sync_leases: Background service starting..."
     local CACHED_PEER_IP=""
+    local RETRY_INTERVAL=30
+    local SYNC_FAILED=0
+
     while true; do
         load_config
         if [ "$ENABLE" -ne 1 ]; then
@@ -134,7 +137,11 @@ daemon_push() {
         if [ -n "$TARGET_IP" ]; then
             if ! push_leases "$TARGET_IP"; then
                 CACHED_PEER_IP=""
-                sleep 5
+                SYNC_FAILED=1
+                sleep "$RETRY_INTERVAL"
+                continue
+            else
+                SYNC_FAILED=0
             fi
         fi
 
