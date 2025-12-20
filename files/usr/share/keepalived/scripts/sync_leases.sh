@@ -106,6 +106,10 @@ push_leases() {
         fi
     fi
 
+    if ! ping -c 1 -W 1 "$dest_ip" >/dev/null 2>&1; then
+        return 1
+    fi
+
     rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$LOCAL_LEASES_FILE" "root@$dest_ip:$LOCAL_LEASES_FILE" >/dev/null 2>&1
 
     if [ $? -eq 0 ]; then
@@ -128,18 +132,22 @@ daemon_push() {
             break
         fi
 
-        TARGET_IP=${USER_PEER_IP:-$PEER_IP}
+        local TARGET_IP=${USER_PEER_IP:-$PEER_IP}
         if [ -z "$TARGET_IP" ]; then
             TARGET_IP=$(get_peer_lan_ip)
             PEER_IP=$TARGET_IP
         fi
 
         if [ -n "$TARGET_IP" ]; then
-            push_leases "$TARGET_IP"
+            if [ ! push_leases "$TARGET_IP" ]; then
+                sleep 5
+            fi
         fi
 
         inotifywait -t "$INTERVAL" -e modify "$LOCAL_LEASES_FILE" >/dev/null 2>&1
-        [ $? -eq 0 ] && sleep 2
+        if [ $? -eq 0 ]; then
+            sleep 2
+        fi
     done
 }
 
