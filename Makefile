@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
 PKG_VERSION:=1.2.1
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -55,12 +55,14 @@ endef
 
 define Package/keepalived-scripts/postinst
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
-	echo "keepalived-scripts: Applying updated logic..."
-	/etc/init.d/lease_sync restart
-	/etc/init.d/keepalived reload
-	echo "keepalived-scripts: Update completed successfully."
-fi
+[ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/lease_sync enable
+/etc/init.d/keepalived reload
+exit 0
+endef
+
+define Package/keepalived-scripts/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/lease_sync disable
 exit 0
 endef
 
