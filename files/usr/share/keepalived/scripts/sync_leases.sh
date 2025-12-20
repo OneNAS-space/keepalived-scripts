@@ -10,7 +10,8 @@ SYNC_STATUS_FILE="/tmp/leases_sync_status"
 load_config() {
     config_load lease_sync
     config_get_bool ENABLE global enable 0
-    config_get INTERVAL global interval 60
+    config_get INTERVAL global interval 3600
+    config_get RETRY_INTERVAL global retry_interval 30
     config_get SSH_KEY global ssh_key "/root/.ssh/id_dropbear"
     config_get USER_PEER_IP global peer_ip
 }
@@ -63,22 +64,13 @@ find_peer_address() {
     fi
 }
 
-# Added: Directly return peer IP for external calls
-if [ "$1" != "get_peer_ip" ]; then
-    PEER_IP=$(get_peer_lan_ip)
-    if [ -z "$PEER_IP" ]; then
-        logger "sync_leases: Error: Could not determine peer LAN IP, exiting sync."
-        exit 1
-    fi
-fi
-
 # Function to pull leases from peer
 pull_leases() {
     local source_ip=$1
     rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "root@$source_ip:$LOCAL_LEASES_FILE" "$LOCAL_LEASES_FILE" >/dev/null 2>&1
     if [ $? -eq 0 ]; then
         logger "sync_leases: Successfully pulled DHCP leases from peer ($source_ip)."
-        CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}')
+        local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}' 2>/dev/null)
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
     else
@@ -90,20 +82,32 @@ pull_leases() {
 # Function to push leases to peer
 push_leases() {
     local dest_ip=$1
-    if [ ! -s "$LOCAL_LEASES_FILE" ]; then # -s checks if file exists and is not empty
+    local force_sync=$2
+    local CURRENT_HASH
+    local PREVIOUS_HASH
+
+    if [ ! -s "$LOCAL_LEASES_FILE" ]; then
         logger "sync_leases: Local leases file $LOCAL_LEASES_FILE does not exist or is empty, skipping push."
         return 0
     fi
 
-    local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}')
+    CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" | awk '{print $1}' 2>/dev/null)
 
-    if [ ! -f "$SYNC_STATUS_FILE" ]; then
-        logger "sync_leases: First run or status file missing, performing push..."
-    else
-        local PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
-        if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
-            return 0
+    if [ "$force_sync" != "force" ]; then
+        if [ ! -f "$SYNC_STATUS_FILE" ]; then
+            logger "sync_leases: First run or status file missing, performing push..."
+        else
+            PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
+            if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
+                return 0
+            fi
         fi
+    else
+        logger "sync_leases: Force sync triggered (peer recovery), bypassing hash check."
+    fi
+
+    if ! ping -c 1 -W 1 "$dest_ip" >/dev/null 2>&1; then
+        return 1
     fi
 
     rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$LOCAL_LEASES_FILE" "root@$dest_ip:$LOCAL_LEASES_FILE" >/dev/null 2>&1
@@ -120,19 +124,44 @@ push_leases() {
 
 daemon_push() {
     logger "sync_leases: Background service starting..."
+    local CACHED_PEER_IP=""
+    local SYNC_FAILED=0
+
     while true; do
         load_config
         if [ "$ENABLE" -ne 1 ]; then
             logger "sync_leases: Service disabled via UCI, exiting."
             break
         fi
-        
-        TARGET_IP=${USER_PEER_IP:-$(get_peer_lan_ip)}
-        if [ -n "$TARGET_IP" ]; then
-            push_leases "$TARGET_IP"
+
+        local TARGET_IP="$USER_PEER_IP"
+        if [ -z "$TARGET_IP" ]; then
+            if [ -z "$CACHED_PEER_IP" ]; then
+                CACHED_PEER_IP=$(get_peer_lan_ip)
+            fi
+            TARGET_IP="$CACHED_PEER_IP"
         fi
-        
-        sleep "$INTERVAL"
+
+        if [ -n "$TARGET_IP" ]; then
+            local sync_mode=""
+            if [ "$SYNC_FAILED" -eq 1 ]; then
+                sync_mode="force"
+            fi
+            
+            if ! push_leases "$TARGET_IP" "$sync_mode"; then
+                CACHED_PEER_IP=""
+                SYNC_FAILED=1
+                sleep "$RETRY_INTERVAL"
+                continue
+            else
+                SYNC_FAILED=0
+            fi
+        fi
+
+        inotifywait -t "$INTERVAL" -e modify "$LOCAL_LEASES_FILE" >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            sleep 2
+        fi
     done
 }
 
