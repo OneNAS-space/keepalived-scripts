@@ -69,7 +69,6 @@ pull_leases() {
     local source_ip=$1
     rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "root@$source_ip:$LOCAL_LEASES_FILE" "$LOCAL_LEASES_FILE" >/dev/null 2>&1
     if [ $? -eq 0 ]; then
-        logger "sync_leases: Successfully pulled DHCP leases from peer ($source_ip)."
         local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}' 2>/dev/null)
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
@@ -113,7 +112,6 @@ push_leases() {
     rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$LOCAL_LEASES_FILE" "root@$dest_ip:$LOCAL_LEASES_FILE" >/dev/null 2>&1
 
     if [ $? -eq 0 ]; then
-        logger "sync_leases: Successfully pushed DHCP leases to peer host ($dest_ip)."
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
     else
