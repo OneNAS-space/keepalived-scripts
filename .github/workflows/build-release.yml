@@ -13,8 +13,60 @@ on:
   workflow_dispatch:
 
 jobs:
+  check:
+    name: 1. Resolve Version
+    runs-on: ubuntu-latest
+    outputs:
+      resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+    steps:
+      - name: 🧾 Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          REL=""
+          SHOULD_BUILD="true"
+
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            REL="${GITHUB_REF_NAME}"
+          elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            CHANGED=$(git diff --name-only HEAD~1 2>/dev/null || echo "Makefile")
+            if echo "$CHANGED" | grep -Eq '^(Makefile|files/)'; then
+              if echo "$CHANGED" | grep -Eq '^files/'; then
+                CUR_VER=$(grep -E '^PKG_VERSION:=' Makefile | cut -d= -f2 | sed 's/#.*//' | tr -d '[:space:]')
+                IFS='.' read -r major minor patch <<< "$CUR_VER"
+                patch=$((patch + 1))
+                NEW_VER="${major}.${minor}.${patch}"
+                sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${NEW_VER}/" Makefile
+                
+                git config user.name "github-actions[bot]"
+                git config user.email "github-actions[bot]@users.noreply.github.com"
+                git add Makefile
+                git commit -m "ci: bump PKG_VERSION to ${NEW_VER} [skip ci]" || true
+                git push origin HEAD:main || true
+              fi
+            else
+              if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+                SHOULD_BUILD="false"
+              fi
+            fi
+          fi
+
+          V=$(grep -E '^PKG_VERSION:=' Makefile | cut -d= -f2 | tr -d '[:space:]')
+          R=$(grep -E '^PKG_RELEASE:=' Makefile | cut -d= -f2 | tr -d '[:space:]')
+          [[ -z "$REL" ]] && REL="${V}-r${R}"
+
+          echo "resolved_tag=$REL" >> "$GITHUB_OUTPUT"
+          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build for keepalived-scripts
+    name: 2. Build for keepalived-scripts
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     
     strategy:
@@ -24,72 +76,20 @@ jobs:
           - version: openwrt-24.10
             target: x86_64
             suffix: all
-            
-    outputs:
-      resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
+          - version: openwrt-25.12
+            target: x86_64
+            suffix: noarch
 
     steps:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-    
-      - name: Resolve version
-        id: resolve
+
+      - name: 📛 Set Environment
         run: |
-          REL=""
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${{ github.event.inputs.release_version }}" ]]; then
-            REL="${{ github.event.inputs.release_version }}"
-            echo "Using manually specified version: ${REL}"
-
-          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            REL="${GITHUB_REF_NAME}"
-            echo "Using tag as version: ${REL}"
-            sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=${REL}/" Makefile
-
-          elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
-            if git rev-parse HEAD~1 >/dev/null 2>&1; then
-              CHANGED=$(git diff --name-only HEAD~1)
-            else
-              echo "No previous commit, assuming changes present"
-              CHANGED="Makefile"
-            fi
-
-            if echo "$CHANGED" | grep -Eq '^(Makefile|files/)'; then
-              if echo "$CHANGED" | grep -Eq '^files/'; then
-                CUR_VER=$(grep -E '^PKG_VERSION:=' Makefile | sed 's/^PKG_VERSION:=//')
-                IFS='.' read -r major minor patch <<< "$CUR_VER"
-                patch=$((patch + 1))
-                NEW_VER="${major}.${minor}.${patch}"
-                sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${NEW_VER}/" Makefile
-                echo "Source code changed, PKG_VERSION incremented: ${CUR_VER} → ${NEW_VER}"
-
-                git config user.name "github-actions[bot]"
-                git config user.email "github-actions[bot]@users.noreply.github.com"
-                git add Makefile
-                git commit -m "ci: bump PKG_VERSION to ${NEW_VER} [skip ci]" || true
-                git push origin HEAD:main || true
-              fi
-            else
-              echo "No relevant changes detected, skipping release"
-              REL=""
-            fi
-          fi
-
-          PKG_VERSION=$(grep -E '^PKG_VERSION:=' Makefile | sed 's/^PKG_VERSION:=//')
-          PKG_RELEASE=$(grep -E '^PKG_RELEASE:=' Makefile | sed 's/^PKG_RELEASE:=//')
-          if [[ -z "$REL" ]]; then
-            REL="${PKG_VERSION}-${PKG_RELEASE}"
-          fi
-
-          echo "Resolved full version: $REL"
-          echo "resolved_tag=$REL" >> "$GITHUB_OUTPUT"
-
-      - name: 📛 Extract PKG_NAME from Makefile
-        run: |
-          PKG_NAME=$(grep -E '^PKG_NAME[:?]?=' Makefile | head -n1 | sed -E 's/PKG_NAME[:?]?= *//')
-          echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
+          echo "PKG_NAME=${{ github.event.repository.name }}" >> "$GITHUB_ENV"
+          echo "ARCH=${{ matrix.target }}-${{ matrix.version }}" >> "$GITHUB_ENV"
 
       - name: 🧰 Set up keepalived-scripts feed structure
         run: |
@@ -105,10 +105,6 @@ jobs:
             --exclude='README.md' \
             --exclude='SECURITY.md' \
             ./ feed/onenas/${PKG_NAME}/
-
-      - name: 🧮 Compute ARCH
-        run: |
-          echo "ARCH=${{ matrix.target }}-${{ matrix.version }}" >> "$GITHUB_ENV"
 
       - name: 🏗️ Build with OpenWrt SDK
         uses: openwrt/gh-action-sdk@v10
@@ -134,17 +130,18 @@ jobs:
             ls -laR bin/packages/ 2>/dev/null || echo "No packages directory"
           fi
 
-      - name: 📦 Upload artifact
+      - name: 📦 Upload artifact for ${{ matrix.target }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.PKG_NAME }}-${{ github.run_number }}
+          name: ${{ env.PKG_NAME }}-${{ matrix.target }}-${{ matrix.version }}
           path: |
-            bin/packages/*/onenas/keepalived-scripts*.ipk
-          if-no-files-found: error
+            bin/packages/*/onenas/${{ env.PKG_NAME }}*.ipk
+            bin/packages/*/onenas/${{ env.PKG_NAME }}*.apk
+          if-no-files-found: ignore
 
   release:
-    name: Release ${{ github.repository }}
-    needs: build
+    name: 3. Release & Deploy ${{ github.repository }}
+    needs: [check, build]
     runs-on: ubuntu-latest
 
     steps:
@@ -159,41 +156,57 @@ jobs:
       - name: 🗃️ Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.build.outputs.resolved_tag }}
-          name: Build-v${{ needs.build.outputs.resolved_tag }}
+          tag_name: v${{ needs.check.outputs.resolved_tag }}
+          name: Build-v${{ needs.check.outputs.resolved_tag }}
           files: |
-            ./release-assets/**/keepalived-scripts*.ipk
+            ./release-assets/**/*.ipk
+            ./release-assets/**/*.apk
           draft: false
           prerelease: false
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout custom-packages repo
+      - name: 🔑 Checkout custom-packages repo
         uses: actions/checkout@v6
         with:
           repository: OneNAS-space/custom-packages
           token: ${{ secrets.CUSTOM_PACKAGES_TOKEN }}
           path: custom-packages
 
-      - name: 📂 Copy artifacts into repo
+      - name: 🚚 Update common artifacts
         run: |
-          find ./release-assets -type f -name "keepalived-scripts*.ipk" | while read -r f; do
-            base=$(basename "$f")
-            pkgname=$(echo "$base" | sed -E 's/^([^_]+)_.*$/\1/')
-            echo "Processing $pkgname into common"
-            mkdir -p custom-packages/common
-            echo "Cleaning old versions of $pkgname in common"
-            rm -f custom-packages/common/${pkgname}_*.ipk
-            cp "$f" custom-packages/common/
-          done
-          ls -laR custom-packages
+          set -e
+          CURRENT_PKG="${{ github.event.repository.name }}"
+          mkdir -p custom-packages/24.10/common custom-packages/25.12/common
 
-      - name: Update pkg artifacts
-        run: |
+          echo "Cleaning all old versions for $CURRENT_PKG before updating..."
+          rm -f custom-packages/24.10/common/${CURRENT_PKG}_*.ipk
+          rm -f custom-packages/25.12/common/${CURRENT_PKG}-*.apk
+
+          find ./release-assets -type f \( -name "*.ipk" -o -name "*.apk" \) | while read -r f; do
+            base=$(basename "$f")
+            if [[ "$base" == *.ipk ]]; then
+              echo "Deploying $base to 24.10/common/"
+              cp "$f" custom-packages/24.10/common/
+            elif [[ "$base" == *.apk ]]; then
+              echo "Deploying $base to 25.12/common/"
+              cp "$f" custom-packages/25.12/common/
+            fi
+          done
+          echo "=== 24.10 Content ==="
+          ls -la custom-packages/24.10/common/${CURRENT_PKG}* || echo "No IPKs found"
+          echo "=== 25.12 Content ==="
+          ls -la custom-packages/25.12/common/${CURRENT_PKG}* || echo "No APKs found"
+
           cd custom-packages
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Update to - v${{ needs.build.outputs.resolved_tag }}" || echo "No changes"
-          git push
+          git add 24.10/common/ 25.12/common 2>/dev/null || true
+          git commit -m "Update $CURRENT_PKG to ${{ needs.check.outputs.resolved_tag }}" || exit 0
+          
+          for i in {1..5}; do
+            git pull --rebase origin main && \
+            git push origin main && break || \
+            (echo "Conflict detected, retrying in 5s..." && sleep 5)
+          done
