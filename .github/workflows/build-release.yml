@@ -58,7 +58,7 @@ jobs:
 
           V=$(grep -E '^PKG_VERSION:=' Makefile | cut -d= -f2 | tr -d '[:space:]')
           R=$(grep -E '^PKG_RELEASE:=' Makefile | cut -d= -f2 | tr -d '[:space:]')
-          [[ -z "$REL" ]] && REL="${V}-r${R}"
+          [[ -z "$REL" ]] && REL="v${V}-r${R}"
 
           echo "resolved_tag=$REL" >> "$GITHUB_OUTPUT"
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
@@ -156,8 +156,8 @@ jobs:
       - name: 🗃️ Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.check.outputs.resolved_tag }}
-          name: Build-v${{ needs.check.outputs.resolved_tag }}
+          tag_name: ${{ needs.check.outputs.resolved_tag }}
+          name: Build-${{ needs.check.outputs.resolved_tag }}
           files: |
             ./release-assets/**/*.ipk
             ./release-assets/**/*.apk
