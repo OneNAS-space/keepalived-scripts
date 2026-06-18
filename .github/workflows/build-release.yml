@@ -21,7 +21,7 @@ jobs:
       should_build: ${{ steps.resolve.outputs.should_build }}
     steps:
       - name: 🧾 Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -79,7 +79,7 @@ jobs:
 
     steps:
       - name: 🧾 Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -142,7 +142,7 @@ jobs:
 
     steps:
       - name: 🧾 Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: ⬇️ Download all build artifacts
         uses: actions/download-artifact@v8
@@ -163,7 +163,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🔑 Checkout custom-packages repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OneNAS-space/custom-packages
           token: ${{ secrets.CUSTOM_PACKAGES_TOKEN }}
