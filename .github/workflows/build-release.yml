@@ -19,6 +19,7 @@ jobs:
     outputs:
       resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
       should_build: ${{ steps.resolve.outputs.should_build }}
+      git_sha: ${{ steps.resolve.outputs.git_sha }} # ⭐ 新增：输出最新的 Commit SHA
     steps:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v7
@@ -62,6 +63,7 @@ jobs:
 
           echo "resolved_tag=$REL" >> "$GITHUB_OUTPUT"
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
+          echo "git_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT" # ⭐ 新增：记录当前最新的 SHA（如果有 push，就是新提交的 SHA）
 
   build:
     name: 2. Build for keepalived-scripts
@@ -81,6 +83,7 @@ jobs:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v7
         with:
+          ref: ${{ needs.check.outputs.git_sha }} # ⭐ 修改：指定拉取 check 阶段产生的最新 Commit
           fetch-depth: 0
 
       - name: 📛 Set Environment
@@ -143,6 +146,8 @@ jobs:
     steps:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.git_sha }} # ⭐ 修改：保持代码版本一致性
 
       - name: ⬇️ Download all build artifacts
         uses: actions/download-artifact@v8
