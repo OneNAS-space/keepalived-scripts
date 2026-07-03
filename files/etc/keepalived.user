@@ -130,9 +130,14 @@ disable_dhcpv4_clear_option() {
 add_dhcpv6_ra_flags() {
 	uci batch <<-EOF
 		delete dhcp.lan.ra_flags
+		delete dhcp.lan.ntp
 		add_list dhcp.lan.ra_flags=managed-config
 		add_list dhcp.lan.ra_flags=other-config
 		add_list dhcp.lan.ra_flags=home-agent
+		add_list dhcp.lan.ntp='0.openwrt.pool.ntp.org'
+		add_list dhcp.lan.ntp='1.openwrt.pool.ntp.org'
+		add_list dhcp.lan.ntp='2.openwrt.pool.ntp.org'
+		add_list dhcp.lan.ntp='3.openwrt.pool.ntp.org'
 		commit dhcp.lan
 	EOF
 	logger "*** Setting DHCP RA flags ***"
@@ -141,6 +146,7 @@ add_dhcpv6_ra_flags() {
 clear_dhcpv6_ra_flags() {
 	uci batch <<-EOF
 		delete dhcp.lan.ra_flags
+		delete dhcp.lan.ntp
 		commit dhcp.lan
 	EOF
 	logger "*** Cleared DHCP RA flags ***"
@@ -272,7 +278,11 @@ if [ "$ACTION" = "NOTIFY_MASTER" ]; then
  	schedule_sync_leases "$ACTION"
 
 	check_and_update "dhcp.lan.dhcpv6" "server"
+	check_and_update "dhcp.lan.dhcpv6_pd" "1"
+	check_and_update "dhcp.lan.dhcpv6_pd_preferred" "1"
 	check_and_update "dhcp.lan.ra" "server"
+	check_and_update "dhcp.lan.ra_slaac" "0"
+	check_and_update "dhcp.lan.ra_preference" "high"
 	add_dhcpv6_ra_flags "$ACTION"
 	restart_odhcpd_if_needed "$ACTION"
 
@@ -285,6 +295,8 @@ elif [ "$ACTION" = "NOTIFY_BACKUP" ]; then
 	restart_dnsmasq_if_needed "$ACTION"
 
 	check_and_update "dhcp.lan.dhcpv6" "disabled"
+	check_and_update "dhcp.lan.dhcpv6_pd" "0"
+	check_and_update "dhcp.lan.dhcpv6_pd_preferred" "0"
 	check_and_update "dhcp.lan.ra" "disabled"
 	clear_dhcpv6_ra_flags "$ACTION"
 	restart_odhcpd_if_needed "$ACTION"
