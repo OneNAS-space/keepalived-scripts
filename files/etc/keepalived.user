@@ -118,9 +118,10 @@ enable_dhcpv4_add_option() {
 
 disable_dhcpv4_clear_option() {
 	uci batch <<-EOF
-		set dhcp.lan.ignore=1
-		set dhcp.lan.dhcpv4=disabled
 		delete dhcp.lan.dhcp_option
+		delete dhcp.lan.force
+		set dhcp.lan.dhcpv4=disabled
+		set dhcp.lan.ignore=1
 		commit dhcp.lan
 	EOF
 	logger "*** Cleared DHCP option ***"
