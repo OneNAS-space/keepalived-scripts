@@ -1,0 +1,349 @@
+#!/bin/sh
+#
+# /etc/hotplug.d/keepalived/560-keepalived-scripts
+#
+# Supplement for keepalived on OpenWrt. Run by hotplug-call after the stock
+# hotplug scripts (01-ubus, 5xx service scripts, ...) with ACTION, TYPE and
+# NAME in the environment. Replaces the former /etc/keepalived.user, which is
+# owned by the keepalived package.
+#
+# Behaviour per vrrp_sync_group state:
+#   MASTER : DHCPv4 on (option 3/6 -> LAN VIP), DHCPv6/RA on, natmap on,
+#            cloudflared off, lease_sync (push to peer) on
+#   BACKUP : DHCP off but dnsmasq keeps running (DNS only), natmap off,
+#            cloudflared on, lease_sync off
+#   FAULT  : natmap and cloudflared off, lease_sync off, DHCP left unchanged
+#
+# Requires the keepalived-sync hotplug script 551-dnsmasq NOT to stop dnsmasq
+# on BACKUP (see local-patches in the keepalived fork).
+#
+# Everything lives in functions with one entry point at the bottom, and
+# helpers are prefixed with ks_, so it behaves the same whether hotplug-call
+# sources or executes it and does not clash with the stock hotplug library.
+
+KS_SCRIPTS_DIR="/etc/keepalived/scripts"
+KS_INITIAL_FLAG="/tmp/keepalived_initial_start"
+# Written by the stock 01-ubus hotplug script: <NAME>_<TYPE>/STATUS
+KS_STATUS_DIR="/var/run/keepalived"
+# keepalived always starts in BACKUP and may become MASTER within seconds
+KS_SETTLE_DELAY=5
+
+ks_log() {
+	logger -t keepalived-scripts "$*"
+}
+
+# --- Generic UCI helper: only write to flash when the value really changes ---
+ks_check_and_update() {
+	local config_key="$1"
+	local target_value="$2"
+	local current_value
+
+	current_value=$(uci -q get "$config_key" 2>/dev/null)
+
+	if [ "$current_value" != "$target_value" ]; then
+		ks_log "Updating $config_key from $current_value to $target_value"
+		uci set "$config_key=$target_value"
+		uci commit "${config_key%%.*}" 2>/dev/null || ks_log "Error committing ${config_key%%.*}"
+	else
+		ks_log "$config_key is already set to $target_value, skipping"
+	fi
+}
+
+# --- Generic service helpers ---
+ks_start_service_if_needed() {
+	local svc="$1"
+
+	if /etc/init.d/"$svc" running >/dev/null 2>&1; then
+		ks_log "$svc service is already running, skipping start"
+	else
+		ks_log "***** Starting $svc service *****"
+		/etc/init.d/"$svc" restart 2>/dev/null || ks_log "Error starting $svc"
+	fi
+}
+
+ks_stop_service() {
+	local svc="$1"
+
+	ks_log "***** Stopping $svc service *****"
+	/etc/init.d/"$svc" stop 2>/dev/null || ks_log "Error stopping $svc"
+}
+
+# --- natmap ---
+ks_enable_natmap() {
+	if ! command -v natmap >/dev/null 2>&1; then
+		ks_log "natmap is not installed, skipping natmap control"
+		return 0
+	fi
+	ks_check_and_update "natmap.@global[0].enable" "1"
+	ks_start_service_if_needed natmap
+}
+
+ks_disable_natmap() {
+	if ! command -v natmap >/dev/null 2>&1; then
+		ks_log "natmap is not installed, skipping natmap control"
+		return 0
+	fi
+	ks_check_and_update "natmap.@global[0].enable" "0"
+	ks_stop_service natmap
+}
+
+# --- cloudflared ---
+ks_enable_cloudflared() {
+	if ! command -v cloudflared >/dev/null 2>&1; then
+		ks_log "cloudflared is not installed, skipping cloudflared control"
+		return 0
+	fi
+	ks_check_and_update "cloudflared.config.enabled" "1"
+	ks_start_service_if_needed cloudflared
+}
+
+ks_disable_cloudflared() {
+	if ! command -v cloudflared >/dev/null 2>&1; then
+		ks_log "cloudflared is not installed, skipping cloudflared control"
+		return 0
+	fi
+	ks_check_and_update "cloudflared.config.enabled" "0"
+	ks_stop_service cloudflared
+}
+
+# --- dhcp.lan helpers ---
+ks_dhcp_lan() {
+	uci -q get "dhcp.lan.$1" 2>/dev/null
+}
+
+# DHCPv4 on, gateway and DNS handed out as the LAN VIP
+ks_enable_dhcpv4() {
+	local vip want
+
+	vip=$("$KS_SCRIPTS_DIR/get_lan_vip.sh")
+	if [ $? -ne 0 ] || [ -z "$vip" ]; then
+		ks_log "ERROR: Failed to get LAN VIP, DHCPv4 options not configured"
+		return 1
+	fi
+
+	want="3,$vip 6,$vip"
+	if [ -z "$(ks_dhcp_lan ignore)" ] &&
+		[ "$(ks_dhcp_lan dhcpv4)" = "server" ] &&
+		[ "$(ks_dhcp_lan force)" = "1" ] &&
+		[ "$(ks_dhcp_lan dhcp_option)" = "$want" ]; then
+		ks_log "DHCPv4 already enabled with VIP=$vip, skipping"
+		return 0
+	fi
+
+	uci -q delete dhcp.lan.ignore
+	uci -q delete dhcp.lan.dhcp_option
+	uci -q delete dhcp.lan.dhcpv4
+	uci -q delete dhcp.lan.force
+	uci set dhcp.lan.dhcpv4=server
+	uci set dhcp.lan.force=1
+	uci add_list dhcp.lan.dhcp_option="3,$vip"
+	uci add_list dhcp.lan.dhcp_option="6,$vip"
+	uci commit dhcp.lan
+	ks_log "*** Enable DHCPv4 and DHCP option (VIP=$vip) ***"
+}
+
+# DHCPv4 off, dnsmasq itself keeps running for DNS
+ks_disable_dhcpv4() {
+	if [ -z "$(ks_dhcp_lan dhcp_option)" ] &&
+		[ -z "$(ks_dhcp_lan force)" ] &&
+		[ "$(ks_dhcp_lan dhcpv4)" = "disabled" ] &&
+		[ "$(ks_dhcp_lan ignore)" = "1" ]; then
+		ks_log "DHCPv4 already disabled, skipping"
+		return 0
+	fi
+
+	uci -q delete dhcp.lan.dhcp_option
+	uci -q delete dhcp.lan.force
+	uci set dhcp.lan.dhcpv4=disabled
+	uci set dhcp.lan.ignore=1
+	uci commit dhcp.lan
+	ks_log "*** Cleared DHCP option ***"
+}
+
+# --- DHCPv6 / RA ---
+ks_add_dhcpv6_ra_flags() {
+	local flags="managed-config other-config home-agent"
+	local ntp="0.openwrt.pool.ntp.org 1.openwrt.pool.ntp.org 2.openwrt.pool.ntp.org 3.openwrt.pool.ntp.org"
+	local item
+
+	if [ "$(ks_dhcp_lan ra_flags)" = "$flags" ] &&
+		[ "$(ks_dhcp_lan ntp)" = "$ntp" ]; then
+		ks_log "DHCP RA flags already set, skipping"
+		return 0
+	fi
+
+	uci -q delete dhcp.lan.ra_flags
+	uci -q delete dhcp.lan.ntp
+	for item in $flags; do
+		uci add_list dhcp.lan.ra_flags="$item"
+	done
+	for item in $ntp; do
+		uci add_list dhcp.lan.ntp="$item"
+	done
+	uci commit dhcp.lan
+	ks_log "*** Setting DHCP RA flags ***"
+}
+
+ks_clear_dhcpv6_ra_flags() {
+	if [ -z "$(ks_dhcp_lan ra_flags)" ] && [ -z "$(ks_dhcp_lan ntp)" ]; then
+		ks_log "DHCP RA flags already cleared, skipping"
+		return 0
+	fi
+
+	uci -q delete dhcp.lan.ra_flags
+	uci -q delete dhcp.lan.ntp
+	uci commit dhcp.lan
+	ks_log "*** Cleared DHCP RA flags ***"
+}
+
+ks_enable_dhcpv6() {
+	ks_check_and_update "dhcp.lan.dhcpv6" "server"
+	ks_check_and_update "dhcp.lan.dhcpv6_pd" "1"
+	ks_check_and_update "dhcp.lan.dhcpv6_pd_preferred" "1"
+	ks_check_and_update "dhcp.lan.ra" "server"
+	ks_check_and_update "dhcp.lan.ra_slaac" "0"
+	ks_check_and_update "dhcp.lan.ra_preference" "high"
+	ks_add_dhcpv6_ra_flags
+}
+
+ks_disable_dhcpv6() {
+	ks_check_and_update "dhcp.lan.dhcpv6" "disabled"
+	ks_check_and_update "dhcp.lan.dhcpv6_pd" "0"
+	ks_check_and_update "dhcp.lan.dhcpv6_pd_preferred" "0"
+	ks_check_and_update "dhcp.lan.ra" "disabled"
+	ks_clear_dhcpv6_ra_flags
+}
+
+# --- Restart services whose config we just changed ---
+ks_restart_dnsmasq() {
+	ks_log "***** Restarting dnsmasq service *****"
+	/etc/init.d/dnsmasq restart 2>/dev/null || ks_log "Error restarting dnsmasq"
+}
+
+ks_restart_odhcpd() {
+	ks_log "***** Restarting odhcpd service *****"
+	/etc/init.d/odhcpd restart 2>/dev/null || ks_log "Error restarting odhcpd"
+}
+
+# --- lease_sync: only the Master pushes its leases to the peer ---
+ks_schedule_sync_leases() {
+	case "$1" in
+		NOTIFY_MASTER)
+			ks_log "MASTER: Starting Procd lease sync service (Silent Mode)"
+			uci set lease_sync.global.enable='1'
+			uci commit lease_sync
+			/etc/init.d/lease_sync restart
+			;;
+		NOTIFY_BACKUP|NOTIFY_FAULT)
+			ks_log "BACKUP/FAULT: Stopping Procd lease sync service"
+			/etc/init.d/lease_sync stop
+			uci set lease_sync.global.enable='0'
+			uci commit lease_sync
+			;;
+	esac
+}
+
+# A node that becomes Master first takes the peer's leases, so the dnsmasq
+# restart that follows loads the latest ones. Runs in the foreground (it is
+# bounded by a ping check and the rsync timeout) so it is finished before
+# dnsmasq is restarted.
+ks_pull_leases_from_peer() {
+	ks_log "Pulling DHCP leases from peer before enabling DHCP"
+	"$KS_SCRIPTS_DIR/sync_leases.sh" pull || ks_log "Lease pull skipped or failed, continuing with local leases"
+}
+
+# For the first BACKUP after keepalived started: is the group still BACKUP?
+# 01-ubus has already recorded every event in STATUS. If it is unreadable,
+# trust the event we were called for.
+ks_still_backup() {
+	local state
+
+	state=$(cat "$KS_STATUS_DIR/${NAME}_${TYPE}/STATUS" 2>/dev/null)
+	[ -z "$state" ] || [ "$state" = "NOTIFY_BACKUP" ]
+}
+
+# --- State handlers ---
+ks_on_master() {
+	rm -f "$KS_INITIAL_FLAG"
+	ks_log "Keepalived state is MASTER, enabling services"
+
+	ks_pull_leases_from_peer
+
+	ks_enable_dhcpv4 || ks_log "DHCPv4 was not enabled, see error above"
+	ks_restart_dnsmasq
+	ks_enable_natmap
+	ks_schedule_sync_leases NOTIFY_MASTER
+
+	ks_enable_dhcpv6
+	ks_restart_odhcpd
+
+	ks_disable_cloudflared
+}
+
+ks_on_backup() {
+	if [ -f "$KS_INITIAL_FLAG" ]; then
+		ks_log "*** Detected initial NOTIFY_BACKUP after Keepalived start, delaying execution ***"
+		sleep "$KS_SETTLE_DELAY"
+		rm -f "$KS_INITIAL_FLAG"
+
+		if ! ks_still_backup; then
+			ks_log "*** After delay, Keepalived is no longer in BACKUP state, skipping NOTIFY_BACKUP execution ***"
+			return 0
+		fi
+		ks_log "*** After delay, Keepalived is still in BACKUP state, executing NOTIFY_BACKUP logic ***"
+	fi
+
+	ks_log "Keepalived state is BACKUP, disabling services"
+
+	ks_enable_cloudflared
+	ks_disable_dhcpv4
+	ks_restart_dnsmasq
+
+	ks_disable_dhcpv6
+	ks_restart_odhcpd
+
+	ks_disable_natmap
+	ks_schedule_sync_leases NOTIFY_BACKUP
+}
+
+ks_on_fault() {
+	rm -f "$KS_INITIAL_FLAG"
+	ks_log "Keepalived state is FAULT, disabling services"
+
+	ks_disable_natmap
+	ks_disable_cloudflared
+	ks_schedule_sync_leases NOTIFY_FAULT
+}
+
+ks_main() {
+	ks_log "Keepalived state changed: TYPE=$TYPE, NAME=$NAME, ACTION=$ACTION"
+
+	# startup/shutdown come from keepalived's startup_script/shutdown_script
+	case "$ACTION" in
+		shutdown)
+			ks_log "*** Keepalived is shutting down ***"
+			ks_clear_dhcpv6_ra_flags
+			ks_disable_cloudflared
+			ks_disable_natmap
+			rm -f "$KS_INITIAL_FLAG"
+			return 0
+			;;
+		startup)
+			ks_log "***** Keepalived is starting, marking initial start *****"
+			touch "$KS_INITIAL_FLAG"
+			return 0
+			;;
+	esac
+
+	# Every transition fires for both the vrrp_instance and the
+	# vrrp_sync_group; only act on the GROUP to avoid running twice.
+	[ "$TYPE" = "GROUP" ] || return 0
+
+	case "$ACTION" in
+		NOTIFY_MASTER) ks_on_master ;;
+		NOTIFY_BACKUP) ks_on_backup ;;
+		NOTIFY_FAULT) ks_on_fault ;;
+	esac
+}
+
+ks_main
