@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# /etc/uci-defaults/99-keepalived-scripts
+#
+# One-time migration. Earlier versions of keepalived-scripts shipped their
+# logic as /etc/keepalived.user, a file owned by the keepalived package that
+# had to be installed with --force-overwrite. The logic now lives in
+# /etc/hotplug.d/keepalived/560-keepalived-scripts; if the old copy stayed in
+# place, both would run on every state change.
+#
+# Only a file that still contains the old keepalived-scripts logic is moved
+# aside (not deleted). The stock placeholder and any hook of your own are
+# left alone. Safe to run more than once.
+
+hook=/etc/keepalived.user
+
+[ -f "$hook" ] || exit 0
+
+if grep -qF 'keepalived_initial_start' "$hook" &&
+	grep -qF 'schedule_sync_leases' "$hook"; then
+	if mv -f "$hook" "$hook.old"; then
+		logger -t keepalived-scripts "Moved the old $hook to $hook.old, its logic is now in /etc/hotplug.d/keepalived/560-keepalived-scripts"
+	else
+		# keep the script in /etc/uci-defaults so it is retried
+		exit 1
+	fi
+fi
+
+exit 0
