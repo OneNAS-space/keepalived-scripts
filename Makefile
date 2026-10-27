@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=keepalived-scripts
 PKG_VERSION:=1.2.8
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -36,6 +36,9 @@ endef
 define Package/keepalived-scripts/install
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/keepalived
 	$(INSTALL_DATA) ./files/etc/hotplug.d/keepalived/560-keepalived-scripts $(1)/etc/hotplug.d/keepalived/560-keepalived-scripts
+
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./files/etc/uci-defaults/99-keepalived-scripts $(1)/etc/uci-defaults/99-keepalived-scripts
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/lease_sync $(1)/etc/config/lease_sync
