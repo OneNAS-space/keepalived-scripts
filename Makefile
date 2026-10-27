@@ -14,7 +14,7 @@ define Package/keepalived-scripts
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=Keepalived user scripts for openwrt
-	DEPENDS:=+keepalived +rsync
+	DEPENDS:=+keepalived +rsync +inotifywait
 	PKGARCH:=all
 endef
 
@@ -23,7 +23,6 @@ define Package/keepalived-scripts/description
 endef
 
 define Package/keepalived-scripts/conffiles
-/etc/keepalived.user
 /etc/config/lease_sync
 endef
 
@@ -35,8 +34,8 @@ define Build/Compile
 endef
 
 define Package/keepalived-scripts/install
-	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_CONF) ./files/etc/keepalived.user $(1)/etc/keepalived.user
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/keepalived
+	$(INSTALL_DATA) ./files/etc/hotplug.d/keepalived/560-keepalived-scripts $(1)/etc/hotplug.d/keepalived/560-keepalived-scripts
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/lease_sync $(1)/etc/config/lease_sync
@@ -56,7 +55,6 @@ endef
 define Package/keepalived-scripts/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/lease_sync enable
-/etc/init.d/keepalived reload
 exit 0
 endef
 
