@@ -64,16 +64,43 @@ find_peer_address() {
     fi
 }
 
+# Target peer: the lease_sync "peer_ip" option wins, otherwise the unicast
+# peer of the br-lan vrrp_instance in the keepalived config
+resolve_target_ip() {
+    if [ -n "$USER_PEER_IP" ]; then
+        echo "$USER_PEER_IP"
+    else
+        get_peer_lan_ip
+    fi
+}
+
 # Function to pull leases from peer
+# Runs in the foreground and is bounded by the ping check and the rsync
+# timeout. The file is fetched to a temporary name first, so a failed or
+# empty transfer never replaces the local leases.
 pull_leases() {
     local source_ip=$1
-    rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "root@$source_ip:$LOCAL_LEASES_FILE" "$LOCAL_LEASES_FILE" >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        local CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}' 2>/dev/null)
+    local tmp_file="${LOCAL_LEASES_FILE}.pull.$$"
+    local CURRENT_HASH
+
+    if [ -z "$source_ip" ]; then
+        logger "sync_leases: Error: No peer IP given, skipping pull."
+        return 1
+    fi
+
+    if ! ping -c 1 -W 1 "$source_ip" >/dev/null 2>&1; then
+        logger "sync_leases: Peer ($source_ip) is unreachable, skipping pull."
+        return 1
+    fi
+
+    if rsync -az --timeout=10 -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "root@$source_ip:$LOCAL_LEASES_FILE" "$tmp_file" >/dev/null 2>&1 && [ -s "$tmp_file" ]; then
+        mv -f "$tmp_file" "$LOCAL_LEASES_FILE"
+        CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}' 2>/dev/null)
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
     else
-        logger "sync_leases: Error: Failed to pull DHCP leases from peer ($source_ip)."
+        rm -f "$tmp_file"
+        logger "sync_leases: Error: Failed to pull DHCP leases from peer ($source_ip), or the peer file is empty. Keeping local leases."
         return 1
     fi
 }
@@ -124,6 +151,8 @@ daemon_push() {
     logger "sync_leases: Background service starting..."
     local CACHED_PEER_IP=""
     local SYNC_FAILED=0
+    local WATCH_FAILED=0
+    local WATCH_RC
 
     while true; do
         load_config
@@ -156,23 +185,41 @@ daemon_push() {
             fi
         fi
 
+        # exit status: 0 = file modified, 2 = timeout (periodic re-check),
+        # anything else = inotifywait missing, or the leases file not there yet.
+        # Wait before retrying in that case, otherwise this loop would spin.
         inotifywait -t "$INTERVAL" -e modify "$LOCAL_LEASES_FILE" >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            sleep 2
-        fi
+        WATCH_RC=$?
+        case "$WATCH_RC" in
+            0)
+                WATCH_FAILED=0
+                sleep 2
+                ;;
+            2)
+                WATCH_FAILED=0
+                ;;
+            *)
+                if [ "$WATCH_FAILED" -eq 0 ]; then
+                    logger "sync_leases: inotifywait failed (exit $WATCH_RC): is it installed and does $LOCAL_LEASES_FILE exist? Retrying every ${RETRY_INTERVAL}s."
+                fi
+                WATCH_FAILED=1
+                sleep "$RETRY_INTERVAL"
+                ;;
+        esac
     done
 }
 
 # Main logic based on arguments
+# pull/push without an IP use the configured or keepalived peer
 case "$1" in
     daemon_push)
         daemon_push ;;
     get_peer_ip)
         get_peer_lan_ip ;;
     pull)
-        pull_leases "$2" ;;
+        pull_leases "${2:-$(resolve_target_ip)}" ;;
     push)
-        push_leases "$2" ;;
+        push_leases "${2:-$(resolve_target_ip)}" ;;
     *)
         logger "sync_leases: Usage: $0 [pull|push|daemon_push|get_peer_ip]"
         exit 1 ;;
