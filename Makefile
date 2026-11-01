@@ -2,6 +2,8 @@
 
 include $(TOPDIR)/rules.mk
 
+PKG_LICENSE:=GPL-3.0-or-later
+PKG_MAINTAINER:=Jackie Han <jackie.han@gmail.com>
 PKG_NAME:=keepalived-scripts
 PKG_VERSION:=1.2.9
 PKG_RELEASE:=2
