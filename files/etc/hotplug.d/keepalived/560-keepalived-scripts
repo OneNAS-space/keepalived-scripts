@@ -244,11 +244,40 @@ $current
 HEREDOC_END
 }
 
+# The virtual IP of the br-lan vrrp_instance, from the keepalived UCI config:
+# instance -> its virtual_ipaddress reference -> the ipaddress section of that
+# name -> address (without the prefix length)
+ks_get_lan_vip() {
+	local instance_line instance_key ip_ref section_line section_key vip_raw
+
+	instance_line=$(uci -q show keepalived 2>/dev/null | grep "@vrrp_instance" | grep "interface='br-lan'" | head -n 1)
+	if [ -z "$instance_line" ]; then
+		ks_log "ERROR: Could not find vrrp_instance for interface 'br-lan'."
+		return 1
+	fi
+	instance_key=$(echo "$instance_line" | cut -d'=' -f 1 | cut -d'.' -f 1,2)
+	ip_ref=$(uci -q get "${instance_key}.virtual_ipaddress" 2>/dev/null)
+	ip_ref=${ip_ref%% *}
+
+	section_line=$(uci -q show keepalived 2>/dev/null | grep "@ipaddress" | grep "name='${ip_ref}'" | head -n 1)
+	if [ -z "$section_line" ]; then
+		ks_log "ERROR: Could not find @ipaddress section matching reference '${ip_ref}'."
+		return 1
+	fi
+	section_key=$(echo "$section_line" | cut -d'=' -f 1 | cut -d'.' -f 1,2)
+	vip_raw=$(uci -q get "${section_key}.address" 2>/dev/null)
+	if [ -z "$vip_raw" ]; then
+		ks_log "ERROR: Could not retrieve LAN VIP from UCI config (address field empty)."
+		return 1
+	fi
+	echo "${vip_raw%%/*}"
+}
+
 # DHCPv4 on, gateway and DNS handed out as the LAN VIP
 ks_enable_dhcpv4() {
 	local vip
 
-	vip=$("$KS_SCRIPTS_DIR/get_lan_vip.sh")
+	vip=$(ks_get_lan_vip)
 	if [ $? -ne 0 ] || [ -z "$vip" ]; then
 		ks_log "ERROR: Failed to get LAN VIP, DHCPv4 options not configured"
 		return 1
@@ -358,20 +387,27 @@ ks_restart_odhcpd() {
 	/etc/init.d/odhcpd restart 2>/dev/null || ks_log "Error restarting odhcpd"
 }
 
+# The "sync" section may be missing in a config from before it existed
+ks_ensure_sync_section() {
+	uci -q get "$KS_CONFIG.sync" >/dev/null 2>&1 || uci set "$KS_CONFIG.sync=$KS_CONFIG"
+}
+
 # --- lease_sync: pushes this node's leases and dhcp config to the peer ---
 ks_lease_sync() {
 	case "$1" in
 		on)
 			ks_log "Starting Procd lease sync service (Silent Mode)"
-			uci set lease_sync.global.enable='1'
-			uci commit lease_sync
+			ks_ensure_sync_section
+			uci set "$KS_CONFIG.sync.enable=1"
+			uci commit "$KS_CONFIG"
 			/etc/init.d/lease_sync restart
 			;;
 		off)
 			ks_log "Stopping Procd lease sync service"
 			/etc/init.d/lease_sync stop
-			uci set lease_sync.global.enable='0'
-			uci commit lease_sync
+			ks_ensure_sync_section
+			uci set "$KS_CONFIG.sync.enable=0"
+			uci commit "$KS_CONFIG"
 			;;
 	esac
 }
