@@ -26,6 +26,7 @@ endef
 
 define Package/keepalived-scripts/conffiles
 /etc/config/lease_sync
+/etc/config/keepalived_scripts
 endef
 
 define Build/Prepare
@@ -44,6 +45,7 @@ define Package/keepalived-scripts/install
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/lease_sync $(1)/etc/config/lease_sync
+	$(INSTALL_CONF) ./files/etc/config/keepalived_scripts $(1)/etc/config/keepalived_scripts
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/lease_sync $(1)/etc/init.d/lease_sync
