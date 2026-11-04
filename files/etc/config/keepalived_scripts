@@ -1,0 +1,63 @@
+# What 560-keepalived-scripts does when the keepalived state changes.
+# Every service gets an action per state: 'on', 'off' or 'keep' (leave it as
+# it is). What is not listed here falls back to the defaults shown below, so
+# the file can be trimmed to the lines that differ.
+
+config keepalived_scripts 'global'
+    # 0 = the script does nothing at all
+    option enabled '1'
+    # seconds to wait after keepalived started before the first BACKUP is
+    # acted on (keepalived always starts as BACKUP, and may become MASTER)
+    option settle_delay '5'
+    # advertised by dhcp.lan while DHCPv6 is on (MASTER)
+    list ra_flags 'managed-config'
+    list ra_flags 'other-config'
+    list ra_flags 'home-agent'
+    list ntp '0.openwrt.pool.ntp.org'
+    list ntp '1.openwrt.pool.ntp.org'
+    list ntp '2.openwrt.pool.ntp.org'
+    list ntp '3.openwrt.pool.ntp.org'
+
+config keepalived_scripts 'master'
+    # take the peer's leases / dhcp config first ('on' or 'off')
+    option pull_leases 'on'
+    option pull_dhcp 'on'
+    # DHCPv4 on = server, gateway and DNS handed out as the LAN VIP
+    option dhcpv4 'on'
+    # dnsmasq: 'on' = running (restarted when needed), 'off' = stopped, 'keep' =
+    # never started or stopped (a running one is still restarted after a DHCP change)
+    option dnsmasq 'on'
+    option dhcpv6 'on'
+    option natmap 'on'
+    option cloudflared 'off'
+    # push own leases and dhcp config to the peer
+    option lease_sync 'on'
+
+config keepalived_scripts 'backup'
+    # DHCP off, dnsmasq itself keeps running for DNS
+    option dhcpv4 'off'
+    # 'on' keeps dnsmasq for DNS. 'off' stops it completely: the router itself
+    # then has no resolver either (/etc/resolv.conf points to it), so this
+    # needs another upstream DNS. Needs the keepalived-sync patch that stops
+    # 551-dnsmasq from touching dnsmasq, otherwise both fight over it.
+    option dnsmasq 'on'
+    option dhcpv6 'off'
+    option natmap 'off'
+    option cloudflared 'on'
+    option lease_sync 'off'
+
+config keepalived_scripts 'fault'
+    option dhcpv4 'keep'
+    option dnsmasq 'keep'
+    option dhcpv6 'keep'
+    option natmap 'off'
+    option cloudflared 'off'
+    option lease_sync 'off'
+
+# keepalived stops or the router shuts down
+config keepalived_scripts 'shutdown'
+    option dnsmasq 'keep'
+    option natmap 'off'
+    option cloudflared 'off'
+    # also clear ra_flags / ntp of dhcp.lan
+    option clear_ra_flags '1'
