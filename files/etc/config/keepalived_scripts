@@ -1,7 +1,11 @@
-# What 560-keepalived-scripts does when the keepalived state changes.
-# Every service gets an action per state: 'on', 'off' or 'keep' (leave it as
-# it is). What is not listed here falls back to the defaults shown below, so
-# the file can be trimmed to the lines that differ.
+# Configuration of keepalived-scripts.
+#   global, master, backup, fault, shutdown: what 560-keepalived-scripts does
+#     when the keepalived state changes. Every service gets an action per
+#     state: 'on', 'off' or 'keep' (leave it as it is).
+#   sync: the lease_sync service that mirrors leases and /etc/config/dhcp
+#     between the two routers.
+# What is not listed here falls back to the defaults shown below, so the file
+# can be trimmed to the lines that differ.
 
 config keepalived_scripts 'global'
     # 0 = the script does nothing at all
@@ -61,3 +65,20 @@ config keepalived_scripts 'shutdown'
     option cloudflared 'off'
     # also clear ra_flags / ntp of dhcp.lan
     option clear_ra_flags '1'
+
+# lease_sync service (sync_leases.sh, /etc/init.d/lease_sync)
+config keepalived_scripts 'sync'
+    # Switched by the role actions above (lease_sync on/off), not a setting to
+    # change by hand while those are in use
+    option enable '0'
+    # seconds between periodic re-checks, and between retries after a failure
+    option interval '3600'
+    option retry_interval '30'
+    option ssh_key '/root/.ssh/id_dropbear'
+    # empty: the unicast peer of the br-lan vrrp_instance
+    option peer_ip ''
+    # mirror /etc/config/dhcp too (hosts, tags, dnsmasq options, ...)
+    option sync_dhcp '1'
+    # more options that must stay as each node has them (the role switches
+    # of dhcp.lan are built in):
+    # list keep_local 'lan.leasetime'
