@@ -403,8 +403,14 @@ ks_lease_sync() {
 			/etc/init.d/lease_sync restart
 			;;
 		off)
-			ks_log "Stopping Procd lease sync service"
-			/etc/init.d/lease_sync stop
+			# "stop" of a procd service that is not registered makes
+			# ubus print "Command failed: ... (Not found)"
+			if /etc/init.d/lease_sync running >/dev/null 2>&1; then
+				ks_log "Stopping Procd lease sync service"
+				/etc/init.d/lease_sync stop
+			else
+				ks_log "Procd lease sync service is not running, nothing to stop"
+			fi
 			ks_ensure_sync_section
 			uci set "$KS_CONFIG.sync.enable=0"
 			uci commit "$KS_CONFIG"
