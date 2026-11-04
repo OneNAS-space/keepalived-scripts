@@ -25,7 +25,6 @@ define Package/keepalived-scripts/description
 endef
 
 define Package/keepalived-scripts/conffiles
-/etc/config/lease_sync
 /etc/config/keepalived_scripts
 endef
 
@@ -44,18 +43,15 @@ define Package/keepalived-scripts/install
 	$(INSTALL_BIN) ./files/etc/uci-defaults/99-keepalived-scripts $(1)/etc/uci-defaults/99-keepalived-scripts
 
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_CONF) ./files/etc/config/lease_sync $(1)/etc/config/lease_sync
 	$(INSTALL_CONF) ./files/etc/config/keepalived_scripts $(1)/etc/config/keepalived_scripts
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/lease_sync $(1)/etc/init.d/lease_sync
 
 	$(INSTALL_DIR) $(1)/usr/share/keepalived/scripts
-	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/get_lan_vip.sh $(1)/usr/share/keepalived/scripts/get_lan_vip.sh
 	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/sync_leases.sh $(1)/usr/share/keepalived/scripts/sync_leases.sh
 
 	$(INSTALL_DIR) $(1)/etc/keepalived/scripts
-	$(LN) /usr/share/keepalived/scripts/get_lan_vip.sh $(1)/etc/keepalived/scripts/get_lan_vip.sh
 	$(LN) /usr/share/keepalived/scripts/sync_leases.sh $(1)/etc/keepalived/scripts/sync_leases.sh
 endef
 
