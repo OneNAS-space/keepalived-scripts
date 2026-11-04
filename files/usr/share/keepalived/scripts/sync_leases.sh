@@ -34,7 +34,7 @@ DHCP_PULL_TIMEOUT=8
 # <section name>.<option>~<regex> for just the list entries whose value matches
 # (the gateway and DNS entries of dhcp_option are the Master's VIP, any other
 # entry in that list is ordinary config and is mirrored). More can be added
-# with "list keep_local" in /etc/config/lease_sync. They are built in on purpose:
+# with "list keep_local" in the sync section of /etc/config/keepalived_scripts. They are built in on purpose:
 # an old config file without the list must not turn DHCP on on the Backup.
 KEEP_LOCAL_DEFAULT="lan.ignore lan.dhcpv4 lan.force lan.dhcp_option~^(3|6|option:router|option:dns-server), lan.dhcpv6 lan.dhcpv6_pd lan.dhcpv6_pd_preferred lan.ra lan.ra_slaac lan.ra_preference lan.ra_flags lan.ntp"
 
@@ -49,15 +49,15 @@ _add_keep_local() {
 }
 
 load_config() {
-    config_load lease_sync
-    config_get_bool ENABLE global enable 0
-    config_get INTERVAL global interval 3600
-    config_get RETRY_INTERVAL global retry_interval 30
-    config_get SSH_KEY global ssh_key "/root/.ssh/id_dropbear"
-    config_get USER_PEER_IP global peer_ip
-    config_get_bool SYNC_DHCP global sync_dhcp 1
+    config_load keepalived_scripts
+    config_get_bool ENABLE sync enable 0
+    config_get INTERVAL sync interval 3600
+    config_get RETRY_INTERVAL sync retry_interval 30
+    config_get SSH_KEY sync ssh_key "/root/.ssh/id_dropbear"
+    config_get USER_PEER_IP sync peer_ip
+    config_get_bool SYNC_DHCP sync sync_dhcp 1
     KEEP_LOCAL="$KEEP_LOCAL_DEFAULT"
-    config_list_foreach global keep_local _add_keep_local
+    config_list_foreach sync keep_local _add_keep_local
     SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 }
 
@@ -403,7 +403,7 @@ apply_dhcp() {
     local in_hash cur_hash keep_hash failed=0
 
     if [ "$SYNC_DHCP" -ne 1 ]; then
-        echo "dhcp config sync is disabled on this node (lease_sync.global.sync_dhcp)"
+        echo "dhcp config sync is disabled on this node (keepalived_scripts.sync.sync_dhcp)"
         return 4
     fi
 
