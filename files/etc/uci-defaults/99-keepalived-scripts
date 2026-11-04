@@ -2,28 +2,65 @@
 #
 # /etc/uci-defaults/99-keepalived-scripts
 #
-# One-time migration. Earlier versions of keepalived-scripts shipped their
-# logic as /etc/keepalived.user, a file owned by the keepalived package that
-# had to be installed with --force-overwrite. The logic now lives in
-# /etc/hotplug.d/keepalived/560-keepalived-scripts; if the old copy stayed in
-# place, both would run on every state change.
+# One-time migrations, safe to run more than once.
 #
-# Only a file that still contains the old keepalived-scripts logic is moved
-# aside (not deleted). The stock placeholder and any hook of your own are
-# left alone. Safe to run more than once.
+# 1. Earlier versions shipped their logic as /etc/keepalived.user, a file owned
+#    by the keepalived package that had to be installed with
+#    --force-overwrite. The logic now lives in
+#    /etc/hotplug.d/keepalived/560-keepalived-scripts; if the old copy stayed in
+#    place, both would run on every state change. Only a file that still
+#    contains the old keepalived-scripts logic is moved aside (not deleted).
+#    The stock placeholder and any hook of your own are left alone.
+#
+# 2. The settings of /etc/config/lease_sync now live in the "sync" section of
+#    /etc/config/keepalived_scripts. Values the old file has are copied over,
+#    then the old file is removed (a copy is left in /tmp).
+
+failed=0
 
 hook=/etc/keepalived.user
-
-[ -f "$hook" ] || exit 0
-
-if grep -qF 'keepalived_initial_start' "$hook" &&
+if [ -f "$hook" ] &&
+	grep -qF 'keepalived_initial_start' "$hook" &&
 	grep -qF 'schedule_sync_leases' "$hook"; then
 	if mv -f "$hook" "$hook.old"; then
 		logger -t keepalived-scripts "Moved the old $hook to $hook.old, its logic is now in /etc/hotplug.d/keepalived/560-keepalived-scripts"
 	else
-		# keep the script in /etc/uci-defaults so it is retried
-		exit 1
+		failed=1
 	fi
 fi
 
-exit 0
+old=/etc/config/lease_sync
+new=keepalived_scripts
+
+# the section must exist whether or not there is anything to copy
+uci -q get "$new.sync" >/dev/null 2>&1 || {
+	uci -q set "$new.sync=$new" || failed=1
+}
+
+if [ -f "$old" ]; then
+	for opt in enable interval retry_interval ssh_key peer_ip sync_dhcp; do
+		val=$(uci -q get "lease_sync.global.$opt" 2>/dev/null)
+		# the interim name of sync_dhcp
+		[ "$opt" = sync_dhcp ] && [ -z "$val" ] && val=$(uci -q get lease_sync.global.sync_hosts 2>/dev/null)
+		[ -n "$val" ] && { uci -q set "$new.sync.$opt=$val" || failed=1; }
+	done
+	if uci -q get lease_sync.global.keep_local >/dev/null 2>&1; then
+		uci -q delete "$new.sync.keep_local"
+		for val in $(uci -q get lease_sync.global.keep_local); do
+			uci -q add_list "$new.sync.keep_local=$val" || failed=1
+		done
+	fi
+fi
+
+if [ -n "$(uci -q changes "$new" 2>/dev/null)" ]; then
+	uci -q commit "$new" || failed=1
+fi
+
+if [ "$failed" -eq 0 ] && [ -f "$old" ]; then
+	cp "$old" /tmp/lease_sync.migrated 2>/dev/null
+	rm -f "$old"
+	logger -t keepalived-scripts "Moved the settings of $old into /etc/config/$new (section sync)"
+fi
+
+# a failure keeps this script in /etc/uci-defaults, so it is retried
+exit "$failed"
