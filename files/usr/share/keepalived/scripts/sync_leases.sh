@@ -27,6 +27,11 @@ DHCP_BACKUP_COPY="/tmp/dhcp.pre-sync"
 SELF_SCRIPT="/etc/keepalived/scripts/sync_leases.sh"
 DHCP_PUSH_TIMEOUT=20
 DHCP_PULL_TIMEOUT=8
+# The keepalived package reloads dropbear on every node that turns Backup, so
+# the peer of a new Master refuses ssh for a moment. A pull tries again for
+# about PEER_RETRIES * PEER_RETRY_DELAY seconds before it gives up.
+PEER_RETRIES=6
+PEER_RETRY_DELAY=2
 
 # Options that belong to the node's current role and are never taken from the
 # peer nor sent to it: the Master/Backup switches that 560-keepalived-scripts
@@ -148,6 +153,36 @@ remote_run() {
     return "$rc"
 }
 
+# First line of an ssh/rsync error file that says something, without the
+# notices dropbear prints on every call
+err_text() {
+    sed -e '/Ignoring unknown configuration option/d' \
+        -e '/skipping hostkey check/d' \
+        -e '/^[[:space:]]*$/d' \
+        -e q "$1" 2>/dev/null
+}
+
+# retry_peer <stderr file> <command...>
+# Runs the command again while it fails because the connection to the peer was
+# refused or dropped (its sshd restarting). Success and any other failure end
+# it at once. The error text of the last run stays in the stderr file, which
+# the command itself must write.
+retry_peer() {
+    local errfile="$1"
+    local tries=0 rc
+
+    shift
+    while :; do
+        "$@"
+        rc=$?
+        [ "$rc" -eq 0 ] && return 0
+        tries=$((tries + 1))
+        [ "$tries" -lt "$PEER_RETRIES" ] || return "$rc"
+        grep -qiE 'refused|connect failed|timed out|no route|unreachable|reset by peer|connection (closed|lost)|lost connection' "$errfile" 2>/dev/null || return "$rc"
+        sleep "$PEER_RETRY_DELAY"
+    done
+}
+
 # ---------------------------------------------------------------------------
 # Leases
 # ---------------------------------------------------------------------------
@@ -155,10 +190,15 @@ remote_run() {
 # Runs in the foreground and is bounded by the ping check and the rsync
 # timeout. The file is fetched to a temporary name first, so a failed or
 # empty transfer never replaces the local leases.
+rsync_from_peer() {
+    rsync -az --timeout=10 -e "ssh $SSH_OPTS" "root@$1:$2" "$3" >/dev/null 2>"$4"
+}
+
 pull_leases() {
     local source_ip=$1
     local tmp_file="${LOCAL_LEASES_FILE}.pull.$$"
-    local CURRENT_HASH
+    local err_file="/tmp/.keepalived_leases_pull_err.$$"
+    local CURRENT_HASH rc detail
 
     if [ -z "$source_ip" ]; then
         logger "sync_leases: Error: No peer IP given, skipping pull."
@@ -170,16 +210,25 @@ pull_leases() {
         return 1
     fi
 
-    if rsync -az --timeout=10 -e "ssh $SSH_OPTS" "root@$source_ip:$LOCAL_LEASES_FILE" "$tmp_file" >/dev/null 2>&1 && [ -s "$tmp_file" ]; then
+    retry_peer "$err_file" rsync_from_peer "$source_ip" "$LOCAL_LEASES_FILE" "$tmp_file" "$err_file"
+    rc=$?
+    detail=$(err_text "$err_file")
+    rm -f "$err_file"
+
+    if [ "$rc" -eq 0 ] && [ -s "$tmp_file" ]; then
         mv -f "$tmp_file" "$LOCAL_LEASES_FILE"
         CURRENT_HASH=$(md5sum "$LOCAL_LEASES_FILE" 2>/dev/null | awk '{print $1}' 2>/dev/null)
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
-    else
-        rm -f "$tmp_file"
-        logger "sync_leases: Error: Failed to pull DHCP leases from peer ($source_ip), or the peer file is empty. Keeping local leases."
-        return 1
     fi
+
+    rm -f "$tmp_file"
+    if [ "$rc" -eq 0 ]; then
+        logger "sync_leases: Peer ($source_ip) has no leases to take over, keeping local leases."
+    else
+        logger "sync_leases: Error: Failed to pull DHCP leases from peer ($source_ip) (rc=$rc${detail:+: $detail}). Keeping local leases."
+    fi
+    return 1
 }
 
 # Function to push leases to peer
@@ -533,7 +582,8 @@ pull_dhcp() {
     local source_ip=$1
     local norestart=$2
     local in_file="/tmp/.keepalived_dhcp_pull.$$"
-    local rc result
+    local err_file="/tmp/.keepalived_dhcp_pull_err.$$"
+    local rc result detail
 
     [ "$SYNC_DHCP" -eq 1 ] || return 0
 
@@ -547,12 +597,19 @@ pull_dhcp() {
         return 1
     fi
 
-    remote_run "$source_ip" "$DHCP_PULL_TIMEOUT" "$SELF_SCRIPT export_dhcp" /dev/null "$in_file" /dev/null
+    retry_peer "$err_file" remote_run "$source_ip" "$DHCP_PULL_TIMEOUT" "$SELF_SCRIPT export_dhcp" /dev/null "$in_file" "$err_file"
     rc=$?
+    detail=$(err_text "$err_file")
+    rm -f "$err_file"
 
-    if [ "$rc" -ne 0 ] || ! valid_dhcp_blob "$in_file"; then
+    if [ "$rc" -ne 0 ]; then
         rm -f "$in_file"
-        logger "sync_leases: Could not read the dhcp config from peer ($source_ip), keeping the local one."
+        logger "sync_leases: Could not read the dhcp config from peer ($source_ip) (rc=$rc${detail:+: $detail}), keeping the local one."
+        return 1
+    fi
+    if ! valid_dhcp_blob "$in_file"; then
+        rm -f "$in_file"
+        logger "sync_leases: The dhcp config sent by peer ($source_ip) is not valid, keeping the local one."
         return 1
     fi
 
