@@ -15,6 +15,13 @@
 # 2. The settings of /etc/config/lease_sync now live in the "sync" section of
 #    /etc/config/keepalived_scripts. Values the old file has are copied over,
 #    then the old file is removed (a copy is left in /tmp).
+#
+# 3. The script behind the lease_sync service was renamed from sync_leases.sh to
+#    sync_dhcp.sh (it syncs the dhcp config as well as the leases). A copy of
+#    the old name that the package could not remove, because it had been
+#    changed, is moved aside to .old. The file names in /etc/crontabs/root and
+#    /etc/rc.local are updated. A lease_sync service that was started before
+#    the upgrade still runs the old path and is restarted.
 
 failed=0
 
@@ -60,6 +67,37 @@ if [ "$failed" -eq 0 ] && [ -f "$old" ]; then
 	cp "$old" /tmp/lease_sync.migrated 2>/dev/null
 	rm -f "$old"
 	logger -t keepalived-scripts "Moved the settings of $old into /etc/config/$new (section sync)"
+fi
+
+old_dir=/usr/share/keepalived/scripts
+old_link=/etc/keepalived/scripts/sync_leases.sh
+if [ -L "$old_link" ] && [ "$(readlink "$old_link")" = "$old_dir/sync_leases.sh" ]; then
+	rm -f "$old_link"
+fi
+if [ -f "$old_dir/sync_leases.sh" ]; then
+	if mv -f "$old_dir/sync_leases.sh" "$old_dir/sync_leases.sh.old"; then
+		logger -t keepalived-scripts "Moved the old $old_dir/sync_leases.sh to $old_dir/sync_leases.sh.old, the script is now sync_dhcp.sh"
+	else
+		failed=1
+	fi
+fi
+
+for file in /etc/crontabs/root /etc/rc.local; do
+	if [ -f "$file" ] && grep -q 'scripts/sync_leases\.sh' "$file"; then
+		if sed -i 's#scripts/sync_leases\.sh#scripts/sync_dhcp.sh#g' "$file"; then
+			logger -t keepalived-scripts "Changed sync_leases.sh to sync_dhcp.sh in $file"
+			[ "$file" = /etc/crontabs/root ] && [ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1
+		else
+			failed=1
+		fi
+	fi
+done
+
+# the running instance keeps the command it was started with
+if [ -x /etc/init.d/lease_sync ] &&
+	ubus call service list '{"name":"lease_sync"}' 2>/dev/null | grep -qF 'sync_leases.sh'; then
+	/etc/init.d/lease_sync restart >/dev/null 2>&1 &&
+		logger -t keepalived-scripts "Restarted lease_sync, it ran the old sync_leases.sh"
 fi
 
 # a failure keeps this script in /etc/uci-defaults, so it is retried
