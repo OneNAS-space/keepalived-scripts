@@ -11,21 +11,60 @@
 const CONFIG = 'keepalived_scripts';
 const SECTIONS = [ 'global', 'master', 'backup', 'fault', 'shutdown', 'sync' ];
 
-/* service -> [ title, help ] */
+/* service -> [ title, what each action does ]. The same text in every tab. */
 const SERVICES = {
-	dhcpv4: [ _('DHCPv4'),
-		_('DHCPv4 server of the LAN. On: gateway and DNS are handed out as the LAN VIP.') ],
-	dnsmasq: [ _('Dnsmasq'),
-		_('Off stops it: the router itself then has no resolver either and needs another upstream DNS.') ],
-	natmap: [ _('Natmap'),
-		_('Skipped when it is not installed.') ],
-	lease_sync: [ _('Lease sync'),
-		_('On: push the leases and the DHCP config of this node to the peer (see the Lease sync tab).') ],
-	dhcpv6: [ _('DHCPv6 / RA'),
-		_('DHCPv6 and router advertisements of the LAN.') ],
-	cloudflared: [ _('Cloudflared'),
-		_('Skipped when it is not installed.') ]
+	dhcpv4: [ _('DHCPv4'), {
+		on: _('The DHCPv4 server of the LAN is switched on and hands out the LAN VIP as gateway and DNS.'),
+		off: _('The DHCPv4 server of the LAN is switched off and the gateway/DNS options are removed.'),
+		keep: _('The DHCPv4 server of the LAN is left as it is.') } ],
+	dnsmasq: [ _('Dnsmasq'), {
+		on: _('dnsmasq is running: started if it was stopped, restarted when DHCPv4 or the leases changed.'),
+		off: _('dnsmasq is stopped, so the router itself has no resolver and needs another upstream DNS. Needs the keepalived-sync patch that stops 551-dnsmasq from touching dnsmasq, otherwise both fight over it.'),
+		keep: _('dnsmasq is neither started nor stopped; it is restarted only when it is running and DHCPv4 or the leases changed.') } ],
+	natmap: [ _('Natmap'), {
+		on: _('Enabled in its config and started.'),
+		off: _('Disabled in its config and stopped.'),
+		keep: _('Left as it is.') } ],
+	lease_sync: [ _('Lease sync'), {
+		on: _('The lease sync service runs: the leases and the DHCP config of this node are pushed to the peer (see the Lease sync tab).'),
+		off: _('The lease sync service is stopped.'),
+		keep: _('The lease sync service is left as it is.') } ],
+	dhcpv6: [ _('DHCPv6 / RA'), {
+		on: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched on, with the RA flags and NTP servers of the General tab.'),
+		off: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched off and the RA flags are cleared.'),
+		keep: _('DHCPv6 and router advertisements of the LAN are left as they are.') } ],
+	cloudflared: [ _('Cloudflared'), {
+		on: _('Enabled in its config and started.'),
+		off: _('Disabled in its config and stopped.'),
+		keep: _('Left as it is.') } ]
 };
+
+/* The description of an option follows its value: texts = { <value>: text }, where a checkbox
+ * is on or off. It is set when the option is rendered (also again after Save) and on change. */
+function dynamicHelp(o, texts) {
+	const render = o.render;
+
+	o.description = texts.on ?? Object.values(texts)[0];
+	o.render = function(...args) {
+		return Promise.resolve(render.apply(this, args)).then(node => {
+			const d = node.querySelector('.cbi-value-description');
+			const input = node.querySelector('select, input[type="checkbox"]');
+
+			if (!d || !input)
+				return node;
+
+			const update = () => {
+				const v = (input.type === 'checkbox') ? (input.checked ? 'on' : 'off') : input.value;
+
+				d.textContent = texts[v] ?? '';
+			};
+
+			update();
+			input.addEventListener('change', update);
+			return node;
+		});
+	};
+}
 
 /* External services (not part of the base system): listed only when installed, which is
  * when their init script exists. service -> name of its init script. Anything added here
@@ -170,14 +209,14 @@ const NTP_SERVERS = [
 ];
 
 /* after: { <service>: function(section) } adds more options right after that service */
-function addActions(s, state, help, after) {
+function addActions(s, state, after) {
 	for (const svc of ORDER) {
 		const def = DEFAULTS[state][svc];
 		if (def == null || !isInstalled(svc))
 			continue;
 
-		const o = s.option(form.ListValue, svc, SERVICES[svc][0],
-			(help && help[svc]) || SERVICES[svc][1]);
+		const o = s.option(form.ListValue, svc, SERVICES[svc][0]);
+		dynamicHelp(o, SERVICES[svc][1]);
 		o.value('on', _('On'));
 		o.value('off', _('Off'));
 		o.value('keep', _('Keep as it is'));
@@ -213,7 +252,8 @@ return view.extend({
 		});
 	},
 
-	/* wrap the sections of the rendered map into tabs */
+	/* wrap the sections of the rendered map into tabs; the description of a section becomes the
+	 * tooltip of its tab title. Runs again after Save, when LuCI re-renders the map in place. */
 	tabs(mapEl, names) {
 		const panes = mapEl.querySelectorAll(':scope > .cbi-section');
 
@@ -223,17 +263,47 @@ return view.extend({
 		const group = E('div', { 'class': 'cbi-map-tabbed' });
 		mapEl.insertBefore(group, panes[0]);
 
+		const tips = {};
+
 		panes.forEach((pane, i) => {
 			const h = pane.querySelector(':scope > h3');
+			const d = pane.querySelector(':scope > .cbi-section-descr');
+
 			pane.setAttribute('data-tab', names[i]);
 			pane.setAttribute('data-tab-title', h ? h.textContent : names[i]);
+			if (d) {
+				tips[names[i]] = d.textContent;
+				d.remove();
+			}
 			if (h)
 				h.remove();
+			/* some room between the tab bar and the first row */
+			pane.style.paddingTop = '1em';
 			group.appendChild(pane);
 		});
 
 		ui.tabs.initTabGroup(group.childNodes);
+
+		group.parentNode.querySelectorAll(':scope > ul.cbi-tabmenu > li').forEach(li => {
+			const tip = tips[li.getAttribute('data-tab')];
+
+			if (tip) {
+				li.title = tip;
+				li.firstChild.title = tip;
+			}
+		});
+
 		return mapEl;
+	},
+
+	/* make the tabs survive a re-render of the map (Save, Save & Apply, Reset) */
+	tabify(m, names) {
+		const orig = m.renderContents;
+		const view = this;
+
+		m.renderContents = function(...args) {
+			return orig.apply(this, args).then(mapEl => view.tabs(mapEl, names));
+		};
 	},
 
 	render(data) {
@@ -264,7 +334,8 @@ return view.extend({
 				return _('Off');
 			};
 
-			return m.render().then(mapEl => this.tabs(mapEl, [ 'global' ]));
+			this.tabify(m, [ 'global' ]);
+			return m.render();
 		}
 
 		m = new form.Map(CONFIG, _('Role Actions'),
@@ -303,6 +374,9 @@ return view.extend({
 		o.disabled = '0';
 		o.default = '1';
 		o.rmempty = false;
+		dynamicHelp(o, {
+			on: _('The script follows keepalived and carries out the actions of the tabs.'),
+			off: _('The script does nothing at all, whatever the other tabs say.') });
 
 		o = s.option(form.Value, 'settle_delay', _('Settle delay'),
 			_('Seconds to wait after keepalived started before the first BACKUP is acted on: keepalived always starts as BACKUP and may become MASTER within seconds.'));
@@ -336,6 +410,9 @@ return view.extend({
 		o.disabled = 'off';
 		o.default = 'on';
 		o.rmempty = false;
+		dynamicHelp(o, {
+			on: _('The DHCP leases of the peer (it was MASTER until now) are fetched before any action of this tab.'),
+			off: _('The leases of the peer are not fetched.') });
 
 		o = s.option(form.Flag, 'pull_dhcp', _('Take over the DHCP config'),
 			_('Fetch /etc/config/dhcp of the peer (hosts, tags, options) before any action of this tab is carried out, right after the leases. Only the entries the role scripts set on each node stay as they are.'));
@@ -343,13 +420,14 @@ return view.extend({
 		o.disabled = 'off';
 		o.default = 'on';
 		o.rmempty = false;
+		dynamicHelp(o, {
+			on: _('/etc/config/dhcp of the peer (hosts, tags, options) is fetched before any action of this tab, right after the leases. Only the entries the role scripts set on each node stay as they are.'),
+			off: _('The DHCP config of the peer is not fetched.') });
 
 		s = m.section(form.NamedSection, 'backup', 'keepalived_scripts', _('BACKUP'),
 			_('This node is the standby.'));
 		s.addremove = false;
-		addActions(s, 'backup', {
-			dnsmasq: _('On keeps dnsmasq running for DNS. Off stops it, so the router itself has no resolver either and needs another upstream DNS; it also needs the keepalived-sync patch that stops 551-dnsmasq from touching dnsmasq, otherwise both fight over it.')
-		});
+		addActions(s, 'backup');
 
 		s = m.section(form.NamedSection, 'fault', 'keepalived_scripts', _('FAULT'),
 			_('keepalived reports a fault on this node. Keeping DHCP as it is avoids interrupting clients that already have a lease.'));
@@ -359,7 +437,7 @@ return view.extend({
 		s = m.section(form.NamedSection, 'shutdown', 'keepalived_scripts', _('SHUTDOWN'),
 			_('keepalived stops or the router shuts down.'));
 		s.addremove = false;
-		addActions(s, 'shutdown', null, {
+		addActions(s, 'shutdown', {
 			lease_sync: function(sect) {
 				const opt = sect.option(form.Flag, 'clear_ra_flags', _('Clear RA flags and NTP'),
 					_('Also remove the RA flags and NTP servers from the LAN, which the MASTER state had set.'));
@@ -367,6 +445,9 @@ return view.extend({
 				opt.disabled = '0';
 				opt.default = '1';
 				opt.rmempty = false;
+				dynamicHelp(opt, {
+					on: _('The RA flags and NTP servers that the MASTER state set are removed from the LAN.'),
+					off: _('The RA flags and NTP servers are left on the LAN.') });
 			}
 		});
 
@@ -430,6 +511,7 @@ return view.extend({
 		};
 
 		/* one tab per section: the section titles become the tab titles */
-		return m.render().then(mapEl => this.tabs(mapEl, SECTIONS));
+		this.tabify(m, SECTIONS);
+		return m.render();
 	}
 });
