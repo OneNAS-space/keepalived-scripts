@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# /etc/keepalived/scripts/sync_leases.sh
+# /etc/keepalived/scripts/sync_dhcp.sh
 #
 # Keeps the Backup router in step with the Master:
 #   1. dhcp.leases   (rsync, either direction)
@@ -24,7 +24,7 @@ DHCP_CONFIG_DIR="/etc/config"
 DHCP_VIEW_DIR="/tmp/.keepalived_dhcp_view"
 DHCP_VIEW_NAME="ks_dhcp"
 DHCP_BACKUP_COPY="/tmp/dhcp.pre-sync"
-SELF_SCRIPT="/etc/keepalived/scripts/sync_leases.sh"
+SELF_SCRIPT="/etc/keepalived/scripts/sync_dhcp.sh"
 DHCP_PUSH_TIMEOUT=20
 DHCP_PULL_TIMEOUT=8
 # The keepalived package reloads dropbear on every node that turns Backup, so
@@ -78,13 +78,13 @@ get_peer_lan_ip() {
     config_foreach find_lan_vrrp vrrp_instance
 
     if [ -z "$lan_instance" ]; then
-        logger "sync_leases: Error: Could not find vrrp_instance with interface 'br-lan' in Keepalived configuration."
+        logger "sync_dhcp: Error: Could not find vrrp_instance with interface 'br-lan' in Keepalived configuration."
         return 1
     fi
 
     config_get peer_name "$lan_instance" unicast_peer
     if [ -z "$peer_name" ]; then
-        logger "sync_leases: Error: Could not find unicast_peer for LAN vrrp_instance ($lan_instance) in Keepalived configuration."
+        logger "sync_dhcp: Error: Could not find unicast_peer for LAN vrrp_instance ($lan_instance) in Keepalived configuration."
         return 1
     fi
 
@@ -94,7 +94,7 @@ get_peer_lan_ip() {
         echo "$peer_ip"
         return 0
     else
-        logger "sync_leases: Error: Could not find IP address for peer ($peer_name)."
+        logger "sync_dhcp: Error: Could not find IP address for peer ($peer_name)."
         return 1
     fi
 }
@@ -201,12 +201,12 @@ pull_leases() {
     local CURRENT_HASH rc detail
 
     if [ -z "$source_ip" ]; then
-        logger "sync_leases: Error: No peer IP given, skipping pull."
+        logger "sync_dhcp: Error: No peer IP given, skipping pull."
         return 1
     fi
 
     if ! peer_up "$source_ip"; then
-        logger "sync_leases: Peer ($source_ip) is unreachable, skipping pull."
+        logger "sync_dhcp: Peer ($source_ip) is unreachable, skipping pull."
         return 1
     fi
 
@@ -224,9 +224,9 @@ pull_leases() {
 
     rm -f "$tmp_file"
     if [ "$rc" -eq 0 ]; then
-        logger "sync_leases: Peer ($source_ip) has no leases to take over, keeping local leases."
+        logger "sync_dhcp: Peer ($source_ip) has no leases to take over, keeping local leases."
     else
-        logger "sync_leases: Error: Failed to pull DHCP leases from peer ($source_ip) (rc=$rc${detail:+: $detail}). Keeping local leases."
+        logger "sync_dhcp: Error: Failed to pull DHCP leases from peer ($source_ip) (rc=$rc${detail:+: $detail}). Keeping local leases."
     fi
     return 1
 }
@@ -239,7 +239,7 @@ push_leases() {
     local PREVIOUS_HASH
 
     if [ ! -s "$LOCAL_LEASES_FILE" ]; then
-        logger "sync_leases: Local leases file $LOCAL_LEASES_FILE does not exist or is empty, skipping push."
+        logger "sync_dhcp: Local leases file $LOCAL_LEASES_FILE does not exist or is empty, skipping push."
         return 0
     fi
 
@@ -247,7 +247,7 @@ push_leases() {
 
     if [ "$force_sync" != "force" ]; then
         if [ ! -f "$SYNC_STATUS_FILE" ]; then
-            logger "sync_leases: First run or status file missing, performing push..."
+            logger "sync_dhcp: First run or status file missing, performing push..."
         else
             PREVIOUS_HASH=$(cat "$SYNC_STATUS_FILE")
             if [ "$CURRENT_HASH" = "$PREVIOUS_HASH" ]; then
@@ -255,7 +255,7 @@ push_leases() {
             fi
         fi
     else
-        logger "sync_leases: Force sync triggered (peer recovery), bypassing hash check."
+        logger "sync_dhcp: Force sync triggered (peer recovery), bypassing hash check."
     fi
 
     if ! peer_up "$dest_ip"; then
@@ -268,7 +268,7 @@ push_leases() {
         echo "$CURRENT_HASH" > "$SYNC_STATUS_FILE"
         return 0
     else
-        logger "sync_leases: Error: Failed to push DHCP leases to peer host ($dest_ip)."
+        logger "sync_dhcp: Error: Failed to push DHCP leases to peer host ($dest_ip)."
         return 1
     fi
 }
@@ -431,12 +431,12 @@ valid_dhcp_blob() {
 
 # Log a sync error once, not on every retry
 dhcp_log_err() {
-    [ "$DHCP_FAILED" -eq 1 ] || logger "sync_leases: $*"
+    [ "$DHCP_FAILED" -eq 1 ] || logger "sync_dhcp: $*"
 }
 
 restart_dhcp_services() {
-    /etc/init.d/dnsmasq running >/dev/null 2>&1 && { /etc/init.d/dnsmasq restart >/dev/null 2>&1 || logger "sync_leases: Error restarting dnsmasq after the dhcp config update."; }
-    /etc/init.d/odhcpd running >/dev/null 2>&1 && { /etc/init.d/odhcpd restart >/dev/null 2>&1 || logger "sync_leases: Error restarting odhcpd after the dhcp config update."; }
+    /etc/init.d/dnsmasq running >/dev/null 2>&1 && { /etc/init.d/dnsmasq restart >/dev/null 2>&1 || logger "sync_dhcp: Error restarting dnsmasq after the dhcp config update."; }
+    /etc/init.d/odhcpd running >/dev/null 2>&1 && { /etc/init.d/odhcpd restart >/dev/null 2>&1 || logger "sync_dhcp: Error restarting odhcpd after the dhcp config update."; }
     return 0
 }
 
@@ -510,10 +510,10 @@ apply_dhcp() {
     fi
 
     if [ "$(dhcp_export | dhcp_hash)" != "$in_hash" ] || [ "$(dhcp_keepers | dhcp_hash)" != "$keep_hash" ]; then
-        logger "sync_leases: dhcp config written, but reading it back gives a different result."
+        logger "sync_dhcp: dhcp config written, but reading it back gives a different result."
     fi
     rm -f "$keep_file"
-    logger "sync_leases: dhcp config updated from the peer, previous $DHCP_CONFIG saved as $DHCP_BACKUP_COPY"
+    logger "sync_dhcp: dhcp config updated from the peer, previous $DHCP_CONFIG saved as $DHCP_BACKUP_COPY"
 
     # only when something really changed (and not when the caller restarts
     # the services anyway, see pull_dhcp)
@@ -568,7 +568,7 @@ push_dhcp() {
 
     LAST_DHCP_HASH="$cur_hash"
     if [ "$result" = "updated" ]; then
-        logger "sync_leases: Pushed the dhcp config ($count host entries), the peer ($dest_ip) was updated."
+        logger "sync_dhcp: Pushed the dhcp config ($count host entries), the peer ($dest_ip) was updated."
     fi
     return 0
 }
@@ -588,12 +588,12 @@ pull_dhcp() {
     [ "$SYNC_DHCP" -eq 1 ] || return 0
 
     if [ -z "$source_ip" ]; then
-        logger "sync_leases: Error: No peer IP given, dhcp config not pulled."
+        logger "sync_dhcp: Error: No peer IP given, dhcp config not pulled."
         return 1
     fi
 
     if ! peer_up "$source_ip"; then
-        logger "sync_leases: Peer ($source_ip) is unreachable, keeping the local dhcp config."
+        logger "sync_dhcp: Peer ($source_ip) is unreachable, keeping the local dhcp config."
         return 1
     fi
 
@@ -604,19 +604,19 @@ pull_dhcp() {
 
     if [ "$rc" -ne 0 ]; then
         rm -f "$in_file"
-        logger "sync_leases: Could not read the dhcp config from peer ($source_ip) (rc=$rc${detail:+: $detail}), keeping the local one."
+        logger "sync_dhcp: Could not read the dhcp config from peer ($source_ip) (rc=$rc${detail:+: $detail}), keeping the local one."
         return 1
     fi
     if ! valid_dhcp_blob "$in_file"; then
         rm -f "$in_file"
-        logger "sync_leases: The dhcp config sent by peer ($source_ip) is not valid, keeping the local one."
+        logger "sync_dhcp: The dhcp config sent by peer ($source_ip) is not valid, keeping the local one."
         return 1
     fi
 
     # A peer without a single host/tag (reset, new hardware) must not wipe ours
     if ! grep -Eq '^config (host|tag)' "$in_file" && dhcp_export 2>/dev/null | grep -Eq '^config (host|tag)'; then
         rm -f "$in_file"
-        logger "sync_leases: Peer ($source_ip) has no host/tag entries, keeping the local dhcp config."
+        logger "sync_dhcp: Peer ($source_ip) has no host/tag entries, keeping the local dhcp config."
         return 1
     fi
 
@@ -627,11 +627,11 @@ pull_dhcp() {
     rm -f "$in_file"
 
     if [ "$rc" -ne 0 ]; then
-        logger "sync_leases: dhcp config of peer ($source_ip) not taken over: $result"
+        logger "sync_dhcp: dhcp config of peer ($source_ip) not taken over: $result"
         return 1
     fi
     if [ "$result" = "updated" ]; then
-        logger "sync_leases: Took over the dhcp config of peer ($source_ip)."
+        logger "sync_dhcp: Took over the dhcp config of peer ($source_ip)."
     fi
     return 0
 }
@@ -649,7 +649,7 @@ dhcp_changed() {
 # Daemon (procd, see /etc/init.d/lease_sync)
 # ---------------------------------------------------------------------------
 daemon_push() {
-    logger "sync_leases: Background service starting..."
+    logger "sync_dhcp: Background service starting..."
     local CACHED_PEER_IP=""
     local SYNC_FAILED=0
     local WATCH_FAILED=0
@@ -657,10 +657,16 @@ daemon_push() {
     local DHCP_FORCE=1
     local WAIT
 
+    # procd stops this service by signalling only this shell, which would leave
+    # a running inotifywait behind (parent pid 1) until its timeout. The watch
+    # therefore runs in the background and the trap ends it with the daemon.
+    WATCH_PID=""
+    trap '[ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null; exit 0' TERM INT
+
     while true; do
         load_config
         if [ "$ENABLE" -ne 1 ]; then
-            logger "sync_leases: Service disabled via UCI, exiting."
+            logger "sync_dhcp: Service disabled via UCI, exiting."
             break
         fi
 
@@ -695,7 +701,7 @@ daemon_push() {
             # the peer was unreachable a moment ago: send everything again
             [ "$sync_mode" = "force" ] && DHCP_FORCE=1
             if push_dhcp "$TARGET_IP" "$DHCP_FORCE"; then
-                [ "$DHCP_FAILED" -eq 1 ] && logger "sync_leases: dhcp config sync works again."
+                [ "$DHCP_FAILED" -eq 1 ] && logger "sync_dhcp: dhcp config sync works again."
                 DHCP_FAILED=0
                 DHCP_FORCE=0
             else
@@ -720,11 +726,14 @@ daemon_push() {
         if [ "$SYNC_DHCP" -eq 1 ]; then
             inotifywait -t "$WAIT" -e modify,close_write,moved_to,create \
                 --include '/(dhcp|dhcp\.leases)$' \
-                "$LOCAL_LEASES_FILE" "$DHCP_CONFIG_DIR" >/dev/null 2>&1
+                "$LOCAL_LEASES_FILE" "$DHCP_CONFIG_DIR" >/dev/null 2>&1 &
         else
-            inotifywait -t "$WAIT" -e modify "$LOCAL_LEASES_FILE" >/dev/null 2>&1
+            inotifywait -t "$WAIT" -e modify "$LOCAL_LEASES_FILE" >/dev/null 2>&1 &
         fi
+        WATCH_PID=$!
+        wait "$WATCH_PID"
         WATCH_RC=$?
+        WATCH_PID=""
         case "$WATCH_RC" in
             0)
                 WATCH_FAILED=0
@@ -737,7 +746,7 @@ daemon_push() {
                 ;;
             *)
                 if [ "$WATCH_FAILED" -eq 0 ]; then
-                    logger "sync_leases: inotifywait failed (exit $WATCH_RC): is it installed and does $LOCAL_LEASES_FILE exist? Retrying every ${RETRY_INTERVAL}s."
+                    logger "sync_dhcp: inotifywait failed (exit $WATCH_RC): is it installed and does $LOCAL_LEASES_FILE exist? Retrying every ${RETRY_INTERVAL}s."
                 fi
                 WATCH_FAILED=1
                 sleep "$RETRY_INTERVAL"
@@ -773,6 +782,6 @@ case "$1" in
         # called through ssh by pull_dhcp on the peer
         dhcp_export ;;
     *)
-        logger "sync_leases: Usage: $0 [pull|push|push_dhcp|pull_dhcp|apply_dhcp|export_dhcp|daemon_push|get_peer_ip]"
+        logger "sync_dhcp: Usage: $0 [pull|push|push_dhcp|pull_dhcp|apply_dhcp|export_dhcp|daemon_push|get_peer_ip]"
         exit 1 ;;
 esac
