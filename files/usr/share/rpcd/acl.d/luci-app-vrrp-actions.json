@@ -3,9 +3,11 @@
 		"description": "Grant access to the settings of keepalived-scripts",
 		"read": {
 			"ubus": {
-				"rc": [ "list" ]
+				"keepalived": [ "status" ],
+				"rc": [ "list" ],
+				"service": [ "list" ]
 			},
-			"uci": [ "keepalived_scripts" ]
+			"uci": [ "keepalived", "keepalived_scripts" ]
 		},
 		"write": {
 			"uci": [ "keepalived_scripts" ]
