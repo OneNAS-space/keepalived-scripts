@@ -1,1 +1,11 @@
-
+{
+	"luci-app-vrrp-actions": {
+		"description": "Grant access to the settings of keepalived-scripts",
+		"read": {
+			"uci": [ "keepalived_scripts" ]
+		},
+		"write": {
+			"uci": [ "keepalived_scripts" ]
+		}
+	}
+}
