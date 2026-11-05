@@ -6,7 +6,7 @@ PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Jackie Han <jackie.han@gmail.com>
 PKG_NAME:=keepalived-scripts
 PKG_VERSION:=1.4.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
@@ -49,10 +49,10 @@ define Package/keepalived-scripts/install
 	$(INSTALL_BIN) ./files/etc/init.d/lease_sync $(1)/etc/init.d/lease_sync
 
 	$(INSTALL_DIR) $(1)/usr/share/keepalived/scripts
-	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/sync_leases.sh $(1)/usr/share/keepalived/scripts/sync_leases.sh
+	$(INSTALL_BIN) ./files/usr/share/keepalived/scripts/sync_dhcp.sh $(1)/usr/share/keepalived/scripts/sync_dhcp.sh
 
 	$(INSTALL_DIR) $(1)/etc/keepalived/scripts
-	$(LN) /usr/share/keepalived/scripts/sync_leases.sh $(1)/etc/keepalived/scripts/sync_leases.sh
+	$(LN) /usr/share/keepalived/scripts/sync_dhcp.sh $(1)/etc/keepalived/scripts/sync_dhcp.sh
 endef
 
 define Package/keepalived-scripts/postinst
