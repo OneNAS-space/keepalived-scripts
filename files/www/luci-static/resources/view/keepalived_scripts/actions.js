@@ -6,6 +6,7 @@
 'require form';
 'require ui';
 'require uci';
+'require rpc';
 
 const CONFIG = 'keepalived_scripts';
 const SECTIONS = [ 'global', 'master', 'backup', 'fault', 'shutdown', 'sync' ];
@@ -25,6 +26,24 @@ const SERVICES = {
 	cloudflared: [ _('Cloudflared'),
 		_('Skipped when it is not installed.') ]
 };
+
+/* External services (not part of the base system): listed only when installed, which is
+ * when their init script exists. service -> name of its init script. Anything added here
+ * must also be known to 560-keepalived-scripts. */
+const EXTERNAL = { cloudflared: 'cloudflared', natmap: 'natmap' };
+
+const callRcList = rpc.declare({
+	object: 'rc',
+	method: 'list',
+	expect: { '': {} }
+});
+
+/* init scripts of this router; null when they could not be read (then nothing is hidden) */
+let initScripts = null;
+
+function isInstalled(svc) {
+	return !EXTERNAL[svc] || initScripts == null || (EXTERNAL[svc] in initScripts);
+}
 
 /* built-in defaults of 560-keepalived-scripts, per state */
 /* the order on the page: the DHCP side first (dnsmasq, DHCPv4, DHCPv6), then lease sync,
@@ -47,7 +66,7 @@ const NTP_SERVERS = [
 function addActions(s, state, help, after) {
 	for (const svc of ORDER) {
 		const def = DEFAULTS[state][svc];
-		if (def == null)
+		if (def == null || !isInstalled(svc))
 			continue;
 
 		const o = s.option(form.ListValue, svc, SERVICES[svc][0],
@@ -65,19 +84,24 @@ function addActions(s, state, help, after) {
 
 return view.extend({
 	load() {
-		return uci.load(CONFIG).then(() => {
-			/* a section that was trimmed from the file is created (not saved until Save & Apply) */
-			for (const name of SECTIONS)
-				if (!uci.get(CONFIG, name))
-					uci.add(CONFIG, 'keepalived_scripts', name);
-		});
+		return Promise.all([
+			uci.load(CONFIG).then(() => {
+				/* a section that was trimmed from the file is created (not saved until Save & Apply) */
+				for (const name of SECTIONS)
+					if (!uci.get(CONFIG, name))
+						uci.add(CONFIG, 'keepalived_scripts', name);
+			}),
+			L.resolveDefault(callRcList(), null)
+		]).then(res => res[1]);
 	},
 
-	render() {
+	render(rc) {
 		let m, s, o;
 
+		initScripts = rc;
+
 		m = new form.Map(CONFIG, _('Role Actions'),
-			_('What the router does when keepalived changes state: one action per service for each state of the VRRP sync group. Every action is On, Off, or Keep as it is (the service is left alone). The script 560-keepalived-scripts reads these settings at every state change, so they apply at the next one. An option that is not set falls back to the value shown.'));
+			_('What the router does when keepalived changes state: one action per service for each state of the VRRP sync group. Every action is On, Off, or Keep as it is (the service is left alone). The script 560-keepalived-scripts reads these settings at every state change, so they apply at the next one. An option that is not set falls back to the value shown. Services that are not installed are not listed.'));
 
 		/* ---- general ---- */
 		s = m.section(form.NamedSection, 'global', 'keepalived_scripts', _('General'));
@@ -113,21 +137,22 @@ return view.extend({
 			_('This node became the active router.'));
 		s.addremove = false;
 
-		o = s.option(form.Flag, 'pull_leases', _('Take over the leases first'),
-			_('Before DHCP starts, fetch the leases of the peer (it was MASTER until now).'));
-		o.enabled = 'on';
-		o.disabled = 'off';
-		o.default = 'on';
-		o.rmempty = false;
-
-		o = s.option(form.Flag, 'pull_dhcp', _('Take over the DHCP config first'),
-			_('Before DHCP starts, fetch /etc/config/dhcp of the peer (hosts, tags, options). Only the entries the role scripts set on each node stay as they are.'));
-		o.enabled = 'on';
-		o.disabled = 'off';
-		o.default = 'on';
-		o.rmempty = false;
-
 		addActions(s, 'master');
+
+		/* listed last like the options of the other tabs, but done before every action above */
+		o = s.option(form.Flag, 'pull_leases', _('Take over the leases'),
+			_('Fetch the DHCP leases of the peer (it was MASTER until now) before any action of this tab is carried out.'));
+		o.enabled = 'on';
+		o.disabled = 'off';
+		o.default = 'on';
+		o.rmempty = false;
+
+		o = s.option(form.Flag, 'pull_dhcp', _('Take over the DHCP config'),
+			_('Fetch /etc/config/dhcp of the peer (hosts, tags, options) before any action of this tab is carried out, right after the leases. Only the entries the role scripts set on each node stay as they are.'));
+		o.enabled = 'on';
+		o.disabled = 'off';
+		o.default = 'on';
+		o.rmempty = false;
 
 		s = m.section(form.NamedSection, 'backup', 'keepalived_scripts', _('BACKUP'),
 			_('This node is the standby.'));
@@ -145,7 +170,7 @@ return view.extend({
 			_('keepalived stops or the router shuts down.'));
 		s.addremove = false;
 		addActions(s, 'shutdown', null, {
-			dhcpv6: function(sect) {
+			lease_sync: function(sect) {
 				const opt = sect.option(form.Flag, 'clear_ra_flags', _('Clear RA flags and NTP'),
 					_('Also remove the RA flags and NTP servers from the LAN, which the MASTER state had set.'));
 				opt.enabled = '1';
