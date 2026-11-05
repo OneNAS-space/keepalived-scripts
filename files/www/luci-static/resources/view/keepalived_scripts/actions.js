@@ -149,6 +149,26 @@ function followed() {
 	return f;
 }
 
+const ROLE_COLORS = { MASTER: '#2e9d4f', BACKUP: '#2f7fd1', FAULT: '#d6382f', STOPPED: '#888' };
+
+/* The role word in bold and in the colour of its state, a little apart from the rest */
+function colourRole(option) {
+	const render = option.render;
+
+	option.render = function(...args) {
+		return Promise.resolve(render.apply(this, args)).then(node => {
+			const out = node.querySelector('output');
+			const m = out && /^(MASTER|BACKUP|FAULT|STOPPED) (.*)$/.exec(out.textContent);
+
+			if (m)
+				out.replaceChildren(
+					E('strong', { 'style': 'color:%s;margin-right:.5em'.format(ROLE_COLORS[m[1]]) }, m[1]),
+					' ' + m[2]);
+			return node;
+		});
+	};
+}
+
 /* "MASTER (VG, since 2026-11-05 15:02:11)" */
 function roleText(status, service, f) {
 	if (f.unreadable)
@@ -326,6 +346,7 @@ return view.extend({
 			o.cfgvalue = function() {
 				return roleText(data.status, data.service, f);
 			};
+			colourRole(o);
 
 			/* never written: the script does nothing without an instance, whatever is stored */
 			o = s.option(form.DummyValue, 'enabled', _('Enabled'),
@@ -351,6 +372,7 @@ return view.extend({
 		o.cfgvalue = function() {
 			return roleText(data.status, data.service, f);
 		};
+		colourRole(o);
 
 		/* the role actions follow one sync group or one instance; the user picks which */
 		o = s.option(form.ListValue, 'follow', _('Follow'),
