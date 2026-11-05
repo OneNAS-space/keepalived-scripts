@@ -60,8 +60,11 @@ config keepalived_scripts 'fault'
 
 # keepalived stops or the router shuts down
 config keepalived_scripts 'shutdown'
+    option dhcpv4 'keep'
     option dnsmasq 'keep'
     option natmap 'off'
+    option lease_sync 'keep'
+    option dhcpv6 'keep'
     option cloudflared 'off'
     # also clear ra_flags / ntp of dhcp.lan
     option clear_ra_flags '1'
