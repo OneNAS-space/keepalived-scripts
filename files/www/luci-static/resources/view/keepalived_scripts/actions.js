@@ -14,12 +14,12 @@ const SECTIONS = [ 'global', 'master', 'backup', 'fault', 'shutdown', 'sync' ];
 const SERVICES = {
 	dhcpv4: [ _('DHCPv4'),
 		_('DHCPv4 server of the LAN. On: gateway and DNS are handed out as the LAN VIP.') ],
-	dnsmasq: [ _('dnsmasq'),
+	dnsmasq: [ _('Dnsmasq'),
 		_('Off stops it: the router itself then has no resolver either and needs another upstream DNS.') ],
 	natmap: [ _('Natmap'),
 		_('Skipped when it is not installed.') ],
 	lease_sync: [ _('Lease sync'),
-		_('On: push the leases and the DHCP config of this node to the peer (see Lease sync below).') ],
+		_('On: push the leases and the DHCP config of this node to the peer (see the Lease sync tab).') ],
 	dhcpv6: [ _('DHCPv6 / RA'),
 		_('DHCPv6 and router advertisements of the LAN.') ],
 	cloudflared: [ _('Cloudflared'),
@@ -27,7 +27,9 @@ const SERVICES = {
 };
 
 /* built-in defaults of 560-keepalived-scripts, per state */
-const ORDER = [ 'dhcpv4', 'dnsmasq', 'natmap', 'lease_sync', 'dhcpv6', 'cloudflared' ];
+/* the order on the page: the DHCP side first (dnsmasq, DHCPv4, DHCPv6), then lease sync,
+ * then the external services in alphabetical order */
+const ORDER = [ 'dnsmasq', 'dhcpv4', 'dhcpv6', 'lease_sync', 'cloudflared', 'natmap' ];
 const DEFAULTS = {
 	master:   { dhcpv4: 'on',   dnsmasq: 'on',   natmap: 'on',  lease_sync: 'on',  dhcpv6: 'on',   cloudflared: 'off' },
 	backup:   { dhcpv4: 'off',  dnsmasq: 'on',   natmap: 'off', lease_sync: 'off', dhcpv6: 'off',  cloudflared: 'on'  },
@@ -41,7 +43,8 @@ const NTP_SERVERS = [
 	'2.openwrt.pool.ntp.org', '3.openwrt.pool.ntp.org'
 ];
 
-function addActions(s, state, help) {
+/* after: { <service>: function(section) } adds more options right after that service */
+function addActions(s, state, help, after) {
 	for (const svc of ORDER) {
 		const def = DEFAULTS[state][svc];
 		if (def == null)
@@ -54,6 +57,9 @@ function addActions(s, state, help) {
 		o.value('keep', _('Keep as it is'));
 		o.default = def;
 		o.rmempty = false;
+
+		if (after && after[svc])
+			after[svc](s);
 	}
 }
 
@@ -78,7 +84,7 @@ return view.extend({
 		s.addremove = false;
 
 		o = s.option(form.Flag, 'enabled', _('Enabled'),
-			_('Off: the script does nothing at all, whatever the states below say.'));
+			_('Off: the script does nothing at all, whatever the other tabs say.'));
 		o.enabled = '1';
 		o.disabled = '0';
 		o.default = '1';
@@ -135,27 +141,29 @@ return view.extend({
 		s.addremove = false;
 		addActions(s, 'fault');
 
-		s = m.section(form.NamedSection, 'shutdown', 'keepalived_scripts', _('Shutdown'),
+		s = m.section(form.NamedSection, 'shutdown', 'keepalived_scripts', _('SHUTDOWN'),
 			_('keepalived stops or the router shuts down.'));
 		s.addremove = false;
-		addActions(s, 'shutdown');
-
-		o = s.option(form.Flag, 'clear_ra_flags', _('Clear RA flags and NTP'),
-			_('Also remove the RA flags and NTP servers from the LAN, which the MASTER state had set.'));
-		o.enabled = '1';
-		o.disabled = '0';
-		o.default = '1';
-		o.rmempty = false;
+		addActions(s, 'shutdown', null, {
+			dhcpv6: function(sect) {
+				const opt = sect.option(form.Flag, 'clear_ra_flags', _('Clear RA flags and NTP'),
+					_('Also remove the RA flags and NTP servers from the LAN, which the MASTER state had set.'));
+				opt.enabled = '1';
+				opt.disabled = '0';
+				opt.default = '1';
+				opt.rmempty = false;
+			}
+		});
 
 		/* ---- lease sync ---- */
 		s = m.section(form.NamedSection, 'sync', 'keepalived_scripts', _('Lease sync'),
 			_('The lease_sync service mirrors the leases and /etc/config/dhcp of the MASTER to its peer.'));
 		s.addremove = false;
 
-		/* Switched by the Lease sync actions above. Shown as text, never written by the page:
+		/* Switched by the Lease sync actions of the states. Shown as text, never written by the page:
 		 * a copy of the page that was loaded before a state change must not switch the service back. */
 		o = s.option(form.DummyValue, 'enable', _('Running'),
-			_('Switched by the Lease sync actions above (on in MASTER, off in BACKUP and FAULT by default), not a setting to change by hand.'));
+			_('Switched by the Lease sync actions of the states (on in MASTER, off in BACKUP and FAULT by default), not a setting to change by hand.'));
 		o.cfgvalue = function(section_id) {
 			return uci.get(CONFIG, section_id, 'enable') == '1' ? _('On') : _('Off');
 		};
