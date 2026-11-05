@@ -1,1 +1,14 @@
-
+{
+	"admin/services/keepalived/role_actions": {
+		"title": "Role Actions",
+		"order": 160,
+		"action": {
+			"type": "view",
+			"path": "keepalived_scripts/actions"
+		},
+		"depends": {
+			"acl": [ "luci-app-vrrp-actions" ],
+			"uci": { "keepalived_scripts": true }
+		}
+	}
+}
