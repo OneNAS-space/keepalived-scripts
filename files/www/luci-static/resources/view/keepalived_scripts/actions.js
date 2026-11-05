@@ -4,6 +4,7 @@
 'use strict';
 'require view';
 'require form';
+'require ui';
 'require uci';
 
 const CONFIG = 'keepalived_scripts';
@@ -31,7 +32,7 @@ const DEFAULTS = {
 	master:   { dhcpv4: 'on',   dnsmasq: 'on',   natmap: 'on',  lease_sync: 'on',  dhcpv6: 'on',   cloudflared: 'off' },
 	backup:   { dhcpv4: 'off',  dnsmasq: 'on',   natmap: 'off', lease_sync: 'off', dhcpv6: 'off',  cloudflared: 'on'  },
 	fault:    { dhcpv4: 'keep', dnsmasq: 'keep', natmap: 'off', lease_sync: 'off', dhcpv6: 'keep', cloudflared: 'off' },
-	shutdown: { dnsmasq: 'keep', natmap: 'off', cloudflared: 'off' }
+	shutdown: { dhcpv4: 'keep', dnsmasq: 'keep', natmap: 'off', lease_sync: 'keep', dhcpv6: 'keep', cloudflared: 'off' }
 };
 
 const RA_FLAGS = [ 'managed-config', 'other-config', 'home-agent' ];
@@ -151,15 +152,13 @@ return view.extend({
 			_('The lease_sync service mirrors the leases and /etc/config/dhcp of the MASTER to its peer.'));
 		s.addremove = false;
 
-		/* Switched by the Lease sync actions above. The page never writes it: a copy of the
-		 * page that was loaded before a state change must not switch the service back. */
-		o = s.option(form.Flag, 'enable', _('Running'),
+		/* Switched by the Lease sync actions above. Shown as text, never written by the page:
+		 * a copy of the page that was loaded before a state change must not switch the service back. */
+		o = s.option(form.DummyValue, 'enable', _('Running'),
 			_('Switched by the Lease sync actions above (on in MASTER, off in BACKUP and FAULT by default), not a setting to change by hand.'));
-		o.enabled = '1';
-		o.disabled = '0';
-		o.readonly = true;
-		o.write = function() {};
-		o.remove = function() {};
+		o.cfgvalue = function(section_id) {
+			return uci.get(CONFIG, section_id, 'enable') == '1' ? _('On') : _('Off');
+		};
 
 		o = s.option(form.Flag, 'sync_dhcp', _('Sync the DHCP config'),
 			_('Mirror /etc/config/dhcp (hosts, tags, dnsmasq options, ...) as well as the leases.'));
@@ -207,6 +206,27 @@ return view.extend({
 				_('Expecting section.option, for example lan.leasetime');
 		};
 
-		return m.render();
+		/* one tab per section: the section titles become the tab titles */
+		return m.render().then(mapEl => {
+			const panes = mapEl.querySelectorAll(':scope > .cbi-section');
+
+			if (panes.length !== SECTIONS.length)
+				return mapEl;
+
+			const group = E('div', { 'class': 'cbi-map-tabbed' });
+			mapEl.insertBefore(group, panes[0]);
+
+			panes.forEach((pane, i) => {
+				const h = pane.querySelector(':scope > h3');
+				pane.setAttribute('data-tab', SECTIONS[i]);
+				pane.setAttribute('data-tab-title', h ? h.textContent : SECTIONS[i]);
+				if (h)
+					h.remove();
+				group.appendChild(pane);
+			});
+
+			ui.tabs.initTabGroup(group.childNodes);
+			return mapEl;
+		});
 	}
 });
