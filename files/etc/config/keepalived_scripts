@@ -66,7 +66,7 @@ config keepalived_scripts 'shutdown'
     # also clear ra_flags / ntp of dhcp.lan
     option clear_ra_flags '1'
 
-# lease_sync service (sync_leases.sh, /etc/init.d/lease_sync)
+# lease_sync service (sync_dhcp.sh, /etc/init.d/lease_sync)
 config keepalived_scripts 'sync'
     # Switched by the role actions above (lease_sync on/off), not a setting to
     # change by hand while those are in use
