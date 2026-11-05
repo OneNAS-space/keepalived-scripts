@@ -21,6 +21,14 @@
 #   SHUTDOWN: natmap and cloudflared off, RA flags and NTP cleared, everything
 #            else (DHCP, dnsmasq, lease_sync) left as it is
 #
+# Which events drive the states: one vrrp_sync_group or one vrrp_instance, the
+# one chosen in keepalived_scripts.global.follow ("group:<name>" or
+# "instance:<name>"). Automatic (not set, or no longer existing): the first
+# vrrp_sync_group, else the instance on br-lan (it holds the LAN VIP), else the
+# only instance. If none of that picks one there is nothing to follow and the
+# script does nothing at all (keepalived still runs its startup and shutdown
+# scripts when it has no instance).
+#
 # Requires the keepalived-sync hotplug script 551-dnsmasq NOT to stop dnsmasq
 # on BACKUP (see local-patches in the keepalived fork).
 #
@@ -37,6 +45,106 @@ KS_SETTLE_DELAY=5
 
 ks_log() {
 	logger -t keepalived-scripts "$*"
+}
+
+# --- Which events drive the states ---
+
+# What /etc/config/keepalived defines, as init.d/keepalived reads it:
+#   instance <name> <interface>   every vrrp_instance that has a name
+#   group <name>                  every vrrp_sync_group with at least one member
+#                                 that is a defined vrrp_instance (init.d leaves
+#                                 the others out of keepalived.conf)
+ks_topology() {
+	uci -q show keepalived 2>/dev/null | awk '
+		BEGIN { q = sprintf("%c", 39) }
+		{
+			i = index($0, "=")
+			if (i == 0)
+				next
+			key = substr($0, 1, i - 1)
+			val = substr($0, i + 1)
+			n = split(key, k, ".")
+			if (n == 2) {
+				type[k[2]] = val
+				order[++cnt] = k[2]
+			} else if (n == 3) {
+				gsub(q, "", val)
+				opt[k[2] "." k[3]] = val
+			}
+		}
+		END {
+			for (j = 1; j <= cnt; j++) {
+				s = order[j]
+				if (type[s] == "vrrp_instance" && opt[s ".name"] != "") {
+					inst[opt[s ".name"]] = 1
+					print "instance", opt[s ".name"], opt[s ".interface"]
+				}
+			}
+			for (j = 1; j <= cnt; j++) {
+				s = order[j]
+				if (type[s] != "vrrp_sync_group" || opt[s ".name"] == "")
+					continue
+				m = split(opt[s ".group"], g, " ")
+				for (x = 1; x <= m; x++)
+					if (g[x] in inst) {
+						print "group", opt[s ".name"]
+						break
+					}
+			}
+		}'
+}
+
+# What drives the states, printed as "<group|instance> <name>" (nothing if
+# nothing can be picked). keepalived_scripts.global.follow is "group:<name>" or
+# "instance:<name>" (a bare name is an instance) and is used when it names
+# something that exists; otherwise (Automatic) the first vrrp_sync_group, else
+# the vrrp_instance on br-lan, else the only vrrp_instance.
+ks_followed() {
+	local want topo kind name
+
+	topo=$(ks_topology)
+	want=$(uci -q get "$KS_CONFIG.global.follow" 2>/dev/null)
+
+	if [ -n "$want" ]; then
+		case "$want" in
+			group:*) kind=group; name=${want#group:} ;;
+			instance:*) kind=instance; name=${want#instance:} ;;
+			*) kind=instance; name=$want ;;
+		esac
+		if printf '%s\n' "$topo" | awk -v k="$kind" -v w="$name" '$1 == k && $2 == w { f = 1 } END { exit !f }'; then
+			echo "$kind $name"
+			return 0
+		fi
+	fi
+
+	printf '%s\n' "$topo" | awk '
+		$1 == "group" && g == "" { g = $2 }
+		$1 == "instance" { n++; first = $2; if ($3 == "br-lan" && lan == "") lan = $2 }
+		END {
+			if (g != "") print "group " g
+			else if (lan != "") print "instance " lan
+			else if (n == 1) print "instance " first
+		}'
+}
+
+# Is there anything whose events drive the states?
+ks_have_driver() {
+	[ -n "$(ks_followed)" ]
+}
+
+# Every transition fires for each vrrp_instance and for the vrrp_sync_group
+# they belong to; act on the followed one only, to avoid running twice.
+ks_is_driver() {
+	local kind name
+
+	set -- $(ks_followed)
+	kind=$1
+	name=$2
+	[ -n "$name" ] && [ "$NAME" = "$name" ] || return 1
+	case "$kind:$TYPE" in
+		group:GROUP | instance:INSTANCE) return 0 ;;
+	esac
+	return 1
 }
 
 # --- Configuration (/etc/config/keepalived_scripts) ---
@@ -572,6 +680,11 @@ ks_main() {
 		return 0
 	fi
 
+	if ! ks_have_driver; then
+		ks_log "Nothing to follow (no vrrp_sync_group or vrrp_instance to pick): ignoring ACTION=$ACTION"
+		return 0
+	fi
+
 	ks_log "Keepalived state changed: TYPE=$TYPE, NAME=$NAME, ACTION=$ACTION"
 
 	# startup/shutdown come from keepalived's startup_script/shutdown_script
@@ -590,9 +703,7 @@ ks_main() {
 			;;
 	esac
 
-	# Every transition fires for both the vrrp_instance and the
-	# vrrp_sync_group; only act on the GROUP to avoid running twice.
-	[ "$TYPE" = "GROUP" ] || return 0
+	ks_is_driver || return 0
 
 	case "$ACTION" in
 		NOTIFY_MASTER) ks_on_master ;;
