@@ -557,7 +557,7 @@ push_dhcp() {
     rc=$?
 
     result=$(head -n 1 "$out_file" 2>/dev/null)
-    [ -n "$result" ] || result=$(head -n 1 "$out_file.err" 2>/dev/null)
+    [ -n "$result" ] || result=$(err_text "$out_file.err")
     count=$(grep -c "^config host" "$blob_file")
     rm -f "$blob_file" "$out_file" "$out_file.err"
 
