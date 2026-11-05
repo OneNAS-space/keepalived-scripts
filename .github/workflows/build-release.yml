@@ -1,6 +1,6 @@
 permissions:
   contents: write
-name: Build OpenWrt Package
+name: Build luci-app-vrrp-actions Package
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
     outputs:
       resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
       should_build: ${{ steps.resolve.outputs.should_build }}
-      git_sha: ${{ steps.resolve.outputs.git_sha }} # ⭐ 新增：输出最新的 Commit SHA
+      git_sha: ${{ steps.resolve.outputs.git_sha }}
     steps:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v7
@@ -62,10 +62,10 @@ jobs:
 
           echo "resolved_tag=$REL" >> "$GITHUB_OUTPUT"
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
-          echo "git_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT" # ⭐ 新增：记录当前最新的 SHA（如果有 push，就是新提交的 SHA）
+          echo "git_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: 2. Build for keepalived-scripts
+    name: 2. Build for luci-app-vrrp-actions
     needs: check
     if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
@@ -82,7 +82,7 @@ jobs:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.check.outputs.git_sha }} # ⭐ 修改：指定拉取 check 阶段产生的最新 Commit
+          ref: ${{ needs.check.outputs.git_sha }}
           fetch-depth: 0
 
       - name: 📛 Set Environment
@@ -90,7 +90,7 @@ jobs:
           echo "PKG_NAME=${{ github.event.repository.name }}" >> "$GITHUB_ENV"
           echo "ARCH=${{ matrix.target }}-${{ matrix.version }}" >> "$GITHUB_ENV"
 
-      - name: 🧰 Set up keepalived-scripts feed structure
+      - name: 🧰 Set up luci-app-vrrp-actions feed structure
         run: |
           set -e
           mkdir -p feed/onenas
@@ -146,7 +146,7 @@ jobs:
       - name: 🧾 Checkout repo
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.check.outputs.git_sha }} # ⭐ 修改：保持代码版本一致性
+          ref: ${{ needs.check.outputs.git_sha }}
 
       - name: ⬇️ Download all build artifacts
         uses: actions/download-artifact@v8
