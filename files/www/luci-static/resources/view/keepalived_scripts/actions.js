@@ -149,7 +149,7 @@ function followed() {
 	return f;
 }
 
-const ROLE_COLORS = { MASTER: '#2e9d4f', BACKUP: '#2f7fd1', FAULT: '#d6382f', STOPPED: '#888' };
+const ROLE_COLORS = { MASTER: '#2e9d4f', BACKUP: '#e08a00', FAULT: '#d6382f', STOPPED: '#888' };
 
 /* The role word in bold and in the colour of its state, a little apart from the rest */
 function colourRole(option) {
@@ -283,6 +283,11 @@ return view.extend({
 		const group = E('div', { 'class': 'cbi-map-tabbed' });
 		mapEl.insertBefore(group, panes[0]);
 
+		/* some room between the tab bar and the first row; only the shown tab, as some themes
+		 * keep the hidden ones in the layout, where their padding would add up */
+		mapEl.insertBefore(E('style', {},
+			'.cbi-map-tabbed > [data-tab][data-tab-active="true"] { padding-top: 1em }'), group);
+
 		const tips = {};
 
 		panes.forEach((pane, i) => {
@@ -297,8 +302,6 @@ return view.extend({
 			}
 			if (h)
 				h.remove();
-			/* some room between the tab bar and the first row */
-			pane.style.paddingTop = '1em';
 			group.appendChild(pane);
 		});
 
@@ -311,6 +314,11 @@ return view.extend({
 				li.title = tip;
 				li.firstChild.title = tip;
 			}
+
+			/* the tab of the state the router is in gets the colour of that state */
+			if (li.getAttribute('data-tab') === this.currentRole?.toLowerCase())
+				li.firstChild.setAttribute('style',
+					'color:%s;font-weight:bold'.format(ROLE_COLORS[this.currentRole]));
 		});
 
 		return mapEl;
@@ -331,6 +339,9 @@ return view.extend({
 		let m, s, o;
 
 		initScripts = data.rc;
+
+		/* MASTER, BACKUP or FAULT while keepalived reports it; else none (STOPPED has no tab) */
+		this.currentRole = /^(MASTER|BACKUP|FAULT) /.exec(roleText(data.status, data.service, f))?.[1] ?? null;
 
 		/* no instance (or no keepalived config): only the state; the actions cannot be enabled */
 		if (f.unreadable || !f.instances.length) {
