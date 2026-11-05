@@ -188,7 +188,7 @@ ks_dhcp_lan() {
 
 # dhcp.lan.dhcp_option is a list that belongs to the user. The two entries
 # that carry the LAN VIP (gateway 3, DNS 6) are ours; everything else in it is
-# left exactly as it is. (sync_leases.sh keeps the same entries local, see
+# left exactly as it is. (sync_dhcp.sh keeps the same entries local, see
 # KEEP_LOCAL_DEFAULT there.)
 KS_NL="
 "
@@ -424,7 +424,7 @@ ks_lease_sync() {
 # dnsmasq is restarted.
 ks_pull_leases_from_peer() {
 	ks_log "Pulling DHCP leases from peer before enabling DHCP"
-	"$KS_SCRIPTS_DIR/sync_leases.sh" pull || ks_log "Lease pull skipped or failed, continuing with local leases"
+	"$KS_SCRIPTS_DIR/sync_dhcp.sh" pull || ks_log "Lease pull skipped or failed, continuing with local leases"
 }
 
 # The dhcp config too (hosts, tags, ...; not the role switches on dhcp.lan): the peer was Master until now and may hold
@@ -432,7 +432,7 @@ ks_pull_leases_from_peer() {
 # restarted further down anyway, so it is not restarted here.
 ks_pull_dhcp_from_peer() {
 	ks_log "Pulling the dhcp config from peer before enabling DHCP"
-	"$KS_SCRIPTS_DIR/sync_leases.sh" pull_dhcp "" norestart || ks_log "dhcp config pull skipped or failed, continuing with the local one"
+	"$KS_SCRIPTS_DIR/sync_dhcp.sh" pull_dhcp "" norestart || ks_log "dhcp config pull skipped or failed, continuing with the local one"
 }
 
 # For the first BACKUP after keepalived started: is the group still BACKUP?
