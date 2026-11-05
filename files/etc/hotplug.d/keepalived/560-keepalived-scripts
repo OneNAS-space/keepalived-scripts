@@ -18,6 +18,8 @@
 #   BACKUP : DHCP off but dnsmasq keeps running (DNS only), natmap off,
 #            cloudflared on, lease_sync off
 #   FAULT  : natmap and cloudflared off, lease_sync off, DHCP left unchanged
+#   SHUTDOWN: natmap and cloudflared off, RA flags and NTP cleared, everything
+#            else (DHCP, dnsmasq, lease_sync) left as it is
 #
 # Requires the keepalived-sync hotplug script 551-dnsmasq NOT to stop dnsmasq
 # on BACKUP (see local-patches in the keepalived fork).
@@ -47,7 +49,8 @@ ks_default() {
 		fault:natmap | fault:lease_sync | fault:cloudflared | \
 		shutdown:natmap | shutdown:cloudflared)
 			echo off ;;
-		fault:dhcpv4 | fault:dhcpv6 | fault:dnsmasq | shutdown:dnsmasq)
+		fault:dhcpv4 | fault:dhcpv6 | fault:dnsmasq | \
+		shutdown:dhcpv4 | shutdown:dhcpv6 | shutdown:dnsmasq | shutdown:lease_sync)
 			echo keep ;;
 		*)
 			echo on ;;
@@ -498,8 +501,9 @@ ks_apply_dnsmasq() {
 	esac
 }
 
-# The actions of a state, in this order: take over the peer's data (Master
-# only), DHCPv4 + dnsmasq, natmap, lease_sync, DHCPv6 + odhcpd, cloudflared.
+# The actions of a state (master, backup, fault, shutdown), in this order: take
+# over the peer's data (Master only), DHCPv4 + dnsmasq, natmap, lease_sync,
+# DHCPv6 + odhcpd, cloudflared.
 # odhcpd is restarted only when its config was touched; dnsmasq see
 # ks_apply_dnsmasq.
 ks_apply_state() {
@@ -575,9 +579,7 @@ ks_main() {
 		shutdown)
 			ks_log "*** Keepalived is shutting down ***"
 			[ "$(ks_flag shutdown clear_ra_flags 1)" -eq 1 ] && ks_have_lan && ks_clear_dhcpv6_ra_flags
-			ks_apply_dnsmasq "$(ks_action shutdown dnsmasq)" keep 0
-			ks_do cloudflared "$(ks_action shutdown cloudflared)"
-			ks_do natmap "$(ks_action shutdown natmap)"
+			ks_apply_state shutdown
 			rm -f "$KS_INITIAL_FLAG"
 			return 0
 			;;
