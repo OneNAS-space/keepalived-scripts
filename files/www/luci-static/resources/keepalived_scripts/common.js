@@ -238,16 +238,16 @@ function roleTable(data) {
 
 	return E('table', { 'class': 'table' }, [
 		E('tr', { 'class': 'tr table-titles' }, [
-			E('th', { 'class': 'th' }, _('Follows')),
-			E('th', { 'class': 'th' }, _('Current role')),
-			E('th', { 'class': 'th' }, _('Since')),
-			E('th', { 'class': 'th' }, _('Role actions'))
+			E('th', { 'class': 'th', 'style': 'text-align:left' }, _('Follows')),
+			E('th', { 'class': 'th', 'style': 'text-align:left' }, _('Current role')),
+			E('th', { 'class': 'th', 'style': 'text-align:left' }, _('Since')),
+			E('th', { 'class': 'th', 'style': 'text-align:left' }, _('Role actions'))
 		]),
 		E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td' }, follows),
-			E('td', { 'class': 'td' }, i.role ? roleNode(i.role) : (i.note ?? '-')),
-			E('td', { 'class': 'td' }, i.since ? formatTime(i.since) : '-'),
-			E('td', { 'class': 'td' }, enabled ? _('Enabled') : _('Disabled'))
+			E('td', { 'class': 'td', 'style': 'text-align:left' }, follows),
+			E('td', { 'class': 'td', 'style': 'text-align:left' }, i.role ? roleNode(i.role) : (i.note ?? '-')),
+			E('td', { 'class': 'td', 'style': 'text-align:left' }, i.since ? formatTime(i.since) : '-'),
+			E('td', { 'class': 'td', 'style': 'text-align:left' }, enabled ? _('Enabled') : _('Disabled'))
 		])
 	]);
 }
@@ -283,16 +283,22 @@ function actionsTable(data) {
 			rows.push([ PULL[name][0], action, PULL[name][1][action] ]);
 		}
 
+	/* argon turns table cells into equal-width flex items on narrow
+	 * screens; the flex shorthand keeps the same proportions there */
+	const c1 = 'text-align:left;width:22%;flex:0 0 22%',
+	      c2 = 'text-align:left;width:18%;flex:0 0 auto',
+	      c3 = 'text-align:left;flex:1 1 0';
+
 	return E('table', { 'class': 'table' }, [
 		E('tr', { 'class': 'tr table-titles' }, [
-			E('th', { 'class': 'th', 'style': 'width:22%' }, _('Service')),
-			E('th', { 'class': 'th nowrap', 'style': 'width:18%' }, _('Action in %s').format(i.role)),
-			E('th', { 'class': 'th' }, _('Effect'))
+			E('th', { 'class': 'th', 'style': c1 }, _('Service')),
+			E('th', { 'class': 'th nowrap', 'style': c2 }, _('Action in %s').format(i.role)),
+			E('th', { 'class': 'th', 'style': c3 }, _('Effect'))
 		])
 	].concat(rows.map(r => E('tr', { 'class': 'tr' }, [
-		E('td', { 'class': 'td nowrap' }, r[0]),
-		E('td', { 'class': 'td nowrap' }, actionNode(r[1])),
-		E('td', { 'class': 'td' }, r[2] ?? '')
+		E('td', { 'class': 'td nowrap', 'style': c1 }, r[0]),
+		E('td', { 'class': 'td nowrap', 'style': c2 }, actionNode(r[1])),
+		E('td', { 'class': 'td', 'style': c3 }, r[2] ?? '')
 	]))));
 }
 
