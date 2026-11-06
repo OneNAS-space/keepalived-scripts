@@ -264,25 +264,19 @@ return view.extend({
 		addActions(s, 'master');
 
 		/* listed last like the options of the other tabs, but done before every action above */
-		o = s.option(form.Flag, 'pull_leases', _('Take over the leases'),
-			_('Fetch the DHCP leases of the peer (it was MASTER until now) before any action of this tab is carried out.'));
+		o = s.option(form.Flag, 'pull_leases', ks.PULL.pull_leases[0]);
 		o.enabled = 'on';
 		o.disabled = 'off';
 		o.default = 'on';
 		o.rmempty = false;
-		dynamicHelp(o, {
-			on: _('The DHCP leases of the peer (it was MASTER until now) are fetched before any action of this tab.'),
-			off: _('The leases of the peer are not fetched.') });
+		dynamicHelp(o, ks.PULL.pull_leases[1]);
 
-		o = s.option(form.Flag, 'pull_dhcp', _('Take over the DHCP config'),
-			_('Fetch /etc/config/dhcp of the peer (hosts, tags, options) before any action of this tab is carried out, right after the leases. Only the entries the role scripts set on each node stay as they are.'));
+		o = s.option(form.Flag, 'pull_dhcp', ks.PULL.pull_dhcp[0]);
 		o.enabled = 'on';
 		o.disabled = 'off';
 		o.default = 'on';
 		o.rmempty = false;
-		dynamicHelp(o, {
-			on: _('/etc/config/dhcp of the peer (hosts, tags, options) is fetched before any action of this tab, right after the leases. Only the entries the role scripts set on each node stay as they are.'),
-			off: _('The DHCP config of the peer is not fetched.') });
+		dynamicHelp(o, ks.PULL.pull_dhcp[1]);
 
 		s = m.section(form.NamedSection, 'backup', 'keepalived_scripts', _('BACKUP'),
 			_('This node is the standby.'));
