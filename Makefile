@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Jackie Han <jackie.han@gmail.com>
 PKG_NAME:=luci-app-vrrp-actions
-PKG_VERSION:=1.0.1
+PKG_VERSION:=1.0.2
 PKG_RELEASE:=1
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
@@ -65,6 +65,13 @@ define Package/luci-app-vrrp-actions/install
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/keepalived_scripts
 	$(INSTALL_DATA) ./files/www/luci-static/resources/view/keepalived_scripts/actions.js $(1)/www/luci-static/resources/view/keepalived_scripts/actions.js
+	$(INSTALL_DATA) ./files/www/luci-static/resources/view/keepalived_scripts/status.js $(1)/www/luci-static/resources/view/keepalived_scripts/status.js
+
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/keepalived_scripts
+	$(INSTALL_DATA) ./files/www/luci-static/resources/keepalived_scripts/common.js $(1)/www/luci-static/resources/keepalived_scripts/common.js
+
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/status/include
+	$(INSTALL_DATA) ./files/www/luci-static/resources/view/status/include/36_vrrp_actions.js $(1)/www/luci-static/resources/view/status/include/36_vrrp_actions.js
 endef
 
 define Package/luci-app-vrrp-actions/postinst
