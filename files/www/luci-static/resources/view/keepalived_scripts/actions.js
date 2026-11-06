@@ -6,38 +6,13 @@
 'require form';
 'require ui';
 'require uci';
-'require rpc';
+'require keepalived_scripts.common as ks';
 
-const CONFIG = 'keepalived_scripts';
+const { CONFIG, SERVICES, ROLE_COLORS, ORDER, DEFAULTS } = ks;
+/* init scripts of this router; null when they could not be read (then nothing is hidden) */
+let initScripts = null;
+
 const SECTIONS = [ 'global', 'master', 'backup', 'fault', 'shutdown', 'sync' ];
-
-/* service -> [ title, what each action does ]. The same text in every tab. */
-const SERVICES = {
-	dhcpv4: [ _('DHCPv4'), {
-		on: _('The DHCPv4 server of the LAN is switched on and hands out the LAN VIP as gateway and DNS.'),
-		off: _('The DHCPv4 server of the LAN is switched off and the gateway/DNS options are removed.'),
-		keep: _('The DHCPv4 server of the LAN is left as it is.') } ],
-	dnsmasq: [ _('Dnsmasq'), {
-		on: _('dnsmasq is running: started if it was stopped, restarted when DHCPv4 or the leases changed.'),
-		off: _('dnsmasq is stopped, so the router itself has no resolver and needs another upstream DNS. Needs the keepalived-sync patch that stops 551-dnsmasq from touching dnsmasq, otherwise both fight over it.'),
-		keep: _('dnsmasq is neither started nor stopped; it is restarted only when it is running and DHCPv4 or the leases changed.') } ],
-	natmap: [ _('Natmap'), {
-		on: _('Enabled in its config and started.'),
-		off: _('Disabled in its config and stopped.'),
-		keep: _('Left as it is.') } ],
-	lease_sync: [ _('Lease sync'), {
-		on: _('The lease sync service runs: the leases and the DHCP config of this node are pushed to the peer (see the Lease sync tab).'),
-		off: _('The lease sync service is stopped.'),
-		keep: _('The lease sync service is left as it is.') } ],
-	dhcpv6: [ _('DHCPv6 / RA'), {
-		on: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched on, with the RA flags and NTP servers of the General tab.'),
-		off: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched off and the RA flags are cleared.'),
-		keep: _('DHCPv6 and router advertisements of the LAN are left as they are.') } ],
-	cloudflared: [ _('Cloudflared'), {
-		on: _('Enabled in its config and started.'),
-		off: _('Disabled in its config and stopped.'),
-		keep: _('Left as it is.') } ]
-};
 
 /* The description of an option follows its value: texts = { <value>: text }, where a checkbox
  * is on or off. It is set when the option is rendered (also again after Save) and on change. */
@@ -66,91 +41,6 @@ function dynamicHelp(o, texts) {
 	};
 }
 
-/* External services (not part of the base system): listed only when installed, which is
- * when their init script exists. service -> name of its init script. Anything added here
- * must also be known to 560-keepalived-scripts. */
-const EXTERNAL = { cloudflared: 'cloudflared', natmap: 'natmap' };
-
-const callRcList = rpc.declare({
-	object: 'rc',
-	method: 'list',
-	expect: { '': {} }
-});
-
-/* state of the keepalived sync group(s), as recorded by the hotplug script 01-ubus, and
- * whether the service runs (the group state stays after a stop) */
-const callKeepalivedStatus = rpc.declare({
-	object: 'keepalived',
-	method: 'status',
-	expect: { '': {} }
-});
-
-const callServiceList = rpc.declare({
-	object: 'service',
-	method: 'list',
-	params: [ 'name' ],
-	expect: { '': {} }
-});
-
-const ROLES = {
-	NOTIFY_MASTER: 'MASTER',
-	NOTIFY_BACKUP: 'BACKUP',
-	NOTIFY_FAULT: 'FAULT',
-	NOTIFY_STOP: 'STOPPED'
-};
-
-function formatTime(ts) {
-	const d = new Date(ts * 1000);
-	const p = n => String(n).padStart(2, '0');
-
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-/* What 560-keepalived-scripts follows, by the same rules as the script: global.follow
- * ("group:<name>" or "instance:<name>"; a bare name is an instance) when it names something
- * that exists; otherwise the first vrrp_sync_group that has a defined vrrp_instance as member,
- * else the vrrp_instance on br-lan, else the only one; if none of that picks one, nothing. */
-function followed() {
-	const instances = uci.sections('keepalived', 'vrrp_instance').filter(s => s.name);
-	const known = new Set(instances.map(s => s.name));
-	const groups = uci.sections('keepalived', 'vrrp_sync_group')
-		.filter(s => s.name && L.toArray(s.group).some(n => known.has(n)))
-		.map(s => s.name);
-	const f = { type: null, names: [], groups, instances: instances.map(s => s.name) };
-	const want = uci.get(CONFIG, 'global', 'follow') ?? '';
-	let type = null, name = null;
-
-	if (want.startsWith('group:') && groups.includes(want.slice(6))) {
-		type = 'group'; name = want.slice(6);
-	}
-	else if (want.startsWith('instance:') && known.has(want.slice(9))) {
-		type = 'instance'; name = want.slice(9);
-	}
-	else if (known.has(want)) {
-		type = 'instance'; name = want;
-	}
-	else if (groups.length) {
-		type = 'group'; name = groups[0];
-	}
-	else {
-		const lan = instances.find(s => s.interface === 'br-lan');
-
-		if (lan)
-			{ type = 'instance'; name = lan.name; }
-		else if (instances.length === 1)
-			{ type = 'instance'; name = instances[0].name; }
-	}
-
-	if (name) {
-		f.type = type;
-		f.names = [ name ];
-	}
-
-	return f;
-}
-
-const ROLE_COLORS = { MASTER: '#2e9d4f', BACKUP: '#e08a00', FAULT: '#d6382f', STOPPED: '#888' };
-
 /* The role word in bold and in the colour of its state, a little apart from the rest */
 function colourRole(option) {
 	const render = option.render;
@@ -169,59 +59,6 @@ function colourRole(option) {
 	};
 }
 
-/* "MASTER (VG, since 2026-11-05 15:02:11)" */
-function roleText(status, service, f) {
-	if (f.unreadable)
-		return _('The keepalived configuration cannot be read');
-
-	if (status == null || service == null)
-		return _('Unknown');
-
-	const running = Object.values(service.keepalived?.instances ?? {}).some(i => i.running);
-
-	if (!f.instances.length)
-		return running
-			? _('keepalived is running, but no VRRP instance is configured')
-			: _('keepalived is not running, and no VRRP instance is configured');
-
-	if (!running)
-		return _('keepalived is not running');
-
-	if (!f.type)
-		return _('keepalived is running, but no instance is followed yet: choose one in Follow');
-
-	/* 01-ubus lists every configured instance and group, with a state once it has reported one */
-	const reported = (f.type === 'group' ? status.group : status.instance) ?? [];
-
-	return f.names.map(name => {
-		const e = reported.find(x => x.name === name);
-
-		if (!e?.status)
-			return `${name}: ${_('waiting for the first state')}`;
-
-		const role = ROLES[e.status] ?? e.status;
-		return `${role} (${name}${e.event ? ', ' + _('since') + ' ' + formatTime(e.event) : ''})`;
-	}).join(', ');
-}
-
-/* init scripts of this router; null when they could not be read (then nothing is hidden) */
-let initScripts = null;
-
-function isInstalled(svc) {
-	return !EXTERNAL[svc] || initScripts == null || (EXTERNAL[svc] in initScripts);
-}
-
-/* built-in defaults of 560-keepalived-scripts, per state */
-/* the order on the page: the DHCP side first (dnsmasq, DHCPv4, DHCPv6), then lease sync,
- * then the external services in alphabetical order */
-const ORDER = [ 'dnsmasq', 'dhcpv4', 'dhcpv6', 'lease_sync', 'cloudflared', 'natmap' ];
-const DEFAULTS = {
-	master:   { dhcpv4: 'on',   dnsmasq: 'on',   natmap: 'on',  lease_sync: 'on',  dhcpv6: 'on',   cloudflared: 'off' },
-	backup:   { dhcpv4: 'off',  dnsmasq: 'on',   natmap: 'off', lease_sync: 'off', dhcpv6: 'off',  cloudflared: 'on'  },
-	fault:    { dhcpv4: 'keep', dnsmasq: 'keep', natmap: 'off', lease_sync: 'off', dhcpv6: 'keep', cloudflared: 'off' },
-	shutdown: { dhcpv4: 'keep', dnsmasq: 'keep', natmap: 'off', lease_sync: 'keep', dhcpv6: 'keep', cloudflared: 'off' }
-};
-
 const RA_FLAGS = [ 'managed-config', 'other-config', 'home-agent' ];
 const NTP_SERVERS = [
 	'0.openwrt.pool.ntp.org', '1.openwrt.pool.ntp.org',
@@ -232,7 +69,7 @@ const NTP_SERVERS = [
 function addActions(s, state, after) {
 	for (const svc of ORDER) {
 		const def = DEFAULTS[state][svc];
-		if (def == null || !isInstalled(svc))
+		if (def == null || !ks.isInstalled(svc, initScripts))
 			continue;
 
 		const o = s.option(form.ListValue, svc, SERVICES[svc][0]);
@@ -250,25 +87,15 @@ function addActions(s, state, after) {
 
 return view.extend({
 	load() {
-		return Promise.all([
-			uci.load(CONFIG),
-			L.resolveDefault(uci.load('keepalived'), null),
-			L.resolveDefault(callRcList(), null),
-			L.resolveDefault(callKeepalivedStatus(), null),
-			L.resolveDefault(callServiceList('keepalived'), null)
-		]).then(res => {
-			/* the keepalived config is what the actions follow: without it there is nothing to do */
-			const f = (res[1] != null)
-				? followed()
-				: { type: null, names: [], groups: [], instances: [], unreadable: true };
-
+		return ks.loadState().then(data => {
 			/* a section that was trimmed from the file is created (not saved until Save & Apply) */
+			const f = data.f;
 			const needed = (f.unreadable || !f.instances.length) ? [ 'global' ] : SECTIONS;
 			for (const name of needed)
 				if (!uci.get(CONFIG, name))
 					uci.add(CONFIG, 'keepalived_scripts', name);
 
-			return { f, rc: res[2], status: res[3], service: res[4] };
+			return data;
 		});
 	},
 
@@ -341,7 +168,7 @@ return view.extend({
 		initScripts = data.rc;
 
 		/* MASTER, BACKUP or FAULT while keepalived reports it; else none (STOPPED has no tab) */
-		this.currentRole = /^(MASTER|BACKUP|FAULT) /.exec(roleText(data.status, data.service, f))?.[1] ?? null;
+		this.currentRole = /^(MASTER|BACKUP|FAULT) /.exec(ks.roleText(data.status, data.service, f))?.[1] ?? null;
 
 		/* no instance (or no keepalived config): only the state; the actions cannot be enabled */
 		if (f.unreadable || !f.instances.length) {
@@ -355,7 +182,7 @@ return view.extend({
 
 			o = s.option(form.DummyValue, 'role', _('Current role'));
 			o.cfgvalue = function() {
-				return roleText(data.status, data.service, f);
+				return ks.roleText(data.status, data.service, f);
 			};
 			colourRole(o);
 
@@ -381,7 +208,7 @@ return view.extend({
 		o = s.option(form.DummyValue, 'role', _('Current role'),
 			_('The state of the followed sync group or instance as of loading this page.'));
 		o.cfgvalue = function() {
-			return roleText(data.status, data.service, f);
+			return ks.roleText(data.status, data.service, f);
 		};
 		colourRole(o);
 
