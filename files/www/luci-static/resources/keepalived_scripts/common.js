@@ -22,11 +22,11 @@ const SERVICES = {
 		off: _('Disabled in its config and stopped.'),
 		keep: _('Left as it is.') } ],
 	lease_sync: [ _('Lease sync'), {
-		on: _('The lease sync service runs: the leases and the DHCP config of this node are pushed to the peer (see the Lease sync tab).'),
+		on: _('The lease sync service runs: the leases and the DHCP config of this node are pushed to the peer (see the Lease sync settings).'),
 		off: _('The lease sync service is stopped.'),
 		keep: _('The lease sync service is left as it is.') } ],
 	dhcpv6: [ _('DHCPv6 / RA'), {
-		on: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched on, with the RA flags and NTP servers of the General tab.'),
+		on: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched on, with the RA flags and NTP servers of the General settings.'),
 		off: _('DHCPv6, prefix delegation and router advertisements of the LAN are switched off and the RA flags are cleared.'),
 		keep: _('DHCPv6 and router advertisements of the LAN are left as they are.') } ],
 	cloudflared: [ _('Cloudflared'), {
@@ -117,6 +117,16 @@ function followed() {
 
 	return f;
 }
+
+/* master only: what is fetched from the peer before the actions are carried out */
+const PULL = {
+	pull_leases: [ _('Take over the leases'), {
+		on: _('The DHCP leases of the peer (it was MASTER until now) are fetched before any action of this state.'),
+		off: _('The leases of the peer are not fetched.') } ],
+	pull_dhcp: [ _('Take over the DHCP config'), {
+		on: _('/etc/config/dhcp of the peer (hosts, tags, options) is fetched before any action of this state, right after the leases. Only the entries the role scripts set on each node stay as they are.'),
+		off: _('The DHCP config of the peer is not fetched.') } ]
+};
 
 const ROLE_COLORS = { MASTER: '#2e9d4f', BACKUP: '#e08a00', FAULT: '#d6382f', STOPPED: '#888' };
 
@@ -242,7 +252,16 @@ function roleTable(data) {
 	]);
 }
 
-/* the action of every service in the current state; null when there is no such state */
+const ACTION_COLORS = { on: '#2e9d4f', off: '#888', keep: '#888' };
+
+/* On in green, Off and Keep as it is dimmed */
+function actionNode(action) {
+	return E('span', {
+		'style': 'color:%s;%s'.format(ACTION_COLORS[action] ?? 'inherit', action === 'on' ? 'font-weight:bold' : '')
+	}, ACTION_LABELS[action] ?? action);
+}
+
+/* the action of every service in the current state, with what it does; null when there is no such state */
 function actionsTable(data) {
 	const i = roleInfo(data.status, data.service, data.f);
 	const state = STATES[i.role];
@@ -250,20 +269,35 @@ function actionsTable(data) {
 	if (!state)
 		return null;
 
+	const rows = ORDER.filter(svc => DEFAULTS[state][svc] != null && isInstalled(svc, data.rc)).map(svc => {
+		const action = actionOf(state, svc);
+
+		return [ SERVICES[svc][0], action, SERVICES[svc][1][action] ];
+	});
+
+	/* what MASTER takes over from the peer, done before the actions above */
+	if (state === 'master')
+		for (const name of [ 'pull_leases', 'pull_dhcp' ]) {
+			const action = actionOf(state, name) ?? 'on';
+
+			rows.push([ PULL[name][0], action, PULL[name][1][action] ]);
+		}
+
 	return E('table', { 'class': 'table' }, [
 		E('tr', { 'class': 'tr table-titles' }, [
-			E('th', { 'class': 'th' }, _('Service')),
-			E('th', { 'class': 'th' }, _('Action in %s').format(i.role))
+			E('th', { 'class': 'th', 'style': 'width:22%' }, _('Service')),
+			E('th', { 'class': 'th nowrap', 'style': 'width:18%' }, _('Action in %s').format(i.role)),
+			E('th', { 'class': 'th' }, _('Effect'))
 		])
-	].concat(ORDER.filter(svc => DEFAULTS[state][svc] != null && isInstalled(svc, data.rc)).map(svc =>
-		E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td' }, SERVICES[svc][0]),
-			E('td', { 'class': 'td' }, ACTION_LABELS[actionOf(state, svc)] ?? actionOf(state, svc))
-		]))));
+	].concat(rows.map(r => E('tr', { 'class': 'tr' }, [
+		E('td', { 'class': 'td nowrap' }, r[0]),
+		E('td', { 'class': 'td nowrap' }, actionNode(r[1])),
+		E('td', { 'class': 'td' }, r[2] ?? '')
+	]))));
 }
 
 return baseclass.extend({
-	CONFIG, SERVICES, EXTERNAL, ROLES, ROLE_COLORS, ORDER, DEFAULTS, ACTION_LABELS,
+	CONFIG, SERVICES, PULL, EXTERNAL, ROLES, ROLE_COLORS, ORDER, DEFAULTS, ACTION_LABELS,
 	formatTime, followed, roleInfo, roleText, loadState, isInstalled, actionOf,
 	roleNode, roleTable, actionsTable
 });
